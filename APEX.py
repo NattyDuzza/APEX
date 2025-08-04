@@ -10,6 +10,11 @@ import pandas as pd
 from astropy.io import fits
 
 class MCMCWorkspace:
+    """
+    A class to handle MCMC runs with a given model and likelihood function. Aims to encapsulate the MCMC configuration and execution, giving a more streamlined interface for setting up and running MCMC simulations. 
+    """
+
+
     def __init__(self, sacc_file=None, model=None, likelihood_function=None, full_info=None, params=None):
         self.sacc_file = sacc_file
 
@@ -30,22 +35,46 @@ class MCMCWorkspace:
             self.MCMC_config(None)
 
     def set_param_priors(self, params, priors):
+        """ Set the priors for the parameters.
+
+        Parameters:
+        params: list of str, names of the parameters
+        priors: list of tuples, each tuple containing the min and max values for the corresponding parameter
+        """
+
         self.params_with_priors = {}
         for param in params:
             self.params_with_priors[param] = priors[params.index(param)]
 
     def set_param_references(self, params, references):
+        """ Set the references for the parameters.
+
+        Parameters:
+        params: list of str, names of the parameters
+        references: list of floats, each float is the reference value for the corresponding parameter
+        """
+
         self.params_with_references = {}
         for param in params:
             self.params_with_references[param] = references[params.index(param)]
 
     def set_param_proposals(self, params, proposals):
+        """ Set the proposals for the parameters.
+
+        Parameters:
+        params: list of str, names of the parameters
+        proposals: list of floats, each float is the proposal value for the corresponding parameter
+        """
+
         self.params_with_proposals = {}
         for param in params:
             self.params_with_proposals[param] = proposals[params.index(param)]
 
     def set_grouped_params(self, grouped_dict):
         """
+        Set the grouped parameters for the MCMC run. Assigns a lamda function to each group of parameters, as cobaya expects.
+
+        Parameters:
         grouped_dict: Dictionary where keys are parameter names and values are lists of parameters that should be grouped together.
         """
         self.grouped_params = []
@@ -61,6 +90,13 @@ class MCMCWorkspace:
 
 
     def MCMC_config(self, params, sampler_info={'mcmc': {"max_tries": 10000, "proposal_scale": 1.5}}):
+
+        """ Configure the MCMC run with the given parameters and sampler information.
+        
+        Parameters:
+        params: list of str, names of the parameters to be used in the MCMC run
+        sampler_info: dict, information about the MCMC sampler, such as max_tries and proposal_scale
+        """
 
         if self.full_info is not None:
             self.info = self.full_info
@@ -101,6 +137,8 @@ class MCMCWorkspace:
 
 
     def print_config(self):
+        """ Print the MCMC configuration, including the sacc file, likelihood function, parameters with priors, references, proposals, and grouped parameters. """
+
         print("MCMC Configuration:")
         print(f"Sacc file: {self.sacc_file}")
         print(f"Likelihood function: {self.likelihood_function}")
@@ -121,10 +159,13 @@ class MCMCWorkspace:
         print(self.info)
 
     def serial_run(self):
+        """ Run the MCMC simulation in serial mode. """
         updated_info, self.sampler = cb.run(self.info)
         return updated_info, self.sampler
     
     def mpi_run(self):
+        """ Run the MCMC simulation in MPI mode. This method is designed to be run in a distributed environment using MPI. 
+        It initializes the MPI communicator, runs the MCMC simulation, and gathers the results across all processes. """
         comm = MPI.COMM_WORLD
         self.rank = comm.Get_rank()
 
@@ -147,6 +188,7 @@ class MCMCWorkspace:
         return upd_info, self.sampler
 
     def minimize_run(self):
+        """ Run the MCMC simulation in a minimized mode, to find best fit parameters without full MCMC sampling."""
         upd_info, sampler = cb.run(self.info, minimize=True)
 
         return sampler
@@ -173,6 +215,12 @@ class MCMCWorkspace:
                 f.write(formatted_chain)
 
     def corner_plot(self, params_to_plot):
+        """ Create a corner plot for the given parameters.
+
+        Parameters:
+        params_to_plot: list of str, names of the parameters to be plotted
+        """
+
         import getdist.plots as gdplt
         gdsamples = self.sampler.samples(combined=True, to_getdist=True, skip_samples=0.3)
 
@@ -183,6 +231,14 @@ class MCMCWorkspace:
         gdplot.export(f'corner_plot{params_to_plot}.png')
 
     def getdist_load(self, name_root=''):
+        """ Load the chain data using getdist and create a corner plot.
+
+        Parameters:
+        name_root: str, root name for the file
+
+        note: not tested, doubt it works,
+        """
+
         import getdist
         import getdist.plots as gdplt
 
@@ -195,6 +251,8 @@ class MCMCWorkspace:
         gdplot.export(f'{name_root}_corner_plot.png')
 
 class GalaxyDensityTracers:
+    """ A class that represents a galaxy density tracer. It contains all the relevant information about the tracer."""
+
     def __init__(self, name, index, z, nz, sacc_file):
         self.z, self.nz = z, nz
         self.name = f'{name}{index}' 
@@ -210,7 +268,20 @@ class GalaxyDensityTracers:
         Returns:
         c_ell: numpy array, C_ell for this tracer
         """
-        ell, cl = s.get_ell_cl(None, self.name, self.name, return_cov=False)
+        _, c_ell = s.get_ell_cl(None, self.name, self.name, return_cov=False)
+        return c_ell
+
+    def get_ells(self, s):
+        """
+        Get the ell values for this tracer.
+        
+        Parameters:
+        s: sacc.Sacc object
+        
+        Returns:
+        ell: numpy array, ell values for this tracer
+        """
+        ell, _ = s.get_ell_cl(None, self.name, self.name, return_cov=False)
         return ell
     
     def get_cut_data(self, sacc_workspace, ell_min=100, ell_max=1000, tracer_2=None):
@@ -218,12 +289,15 @@ class GalaxyDensityTracers:
         Get the C_ell for this tracer, cut to a specific range.
         
         Parameters:
-        sacc_workspace
+        sacc_workspace: sacc.Sacc object
         ell_min: int, minimum ell value
         ell_max: int, maximum ell value
+        tracer_2: str, name of the second tracer (optional)
         
         Returns:
-        c_ell: numpy array, C_ell for this tracer in the specified range
+        ell[mask]: numpy array, ell values for this tracer in the specified range
+        cl[mask]: numpy array, C_ell for this tracer in the specified range
+        mask: numpy array, boolean mask indicating which ell values are in the specified range
         """
         s = sacc_workspace.data
 
@@ -244,12 +318,24 @@ class GalaxyDensityTracers:
         return ell[mask], cl[mask], mask
 
     def get_z(self):
+        """ Get the redshift values for this tracer. 
+        
+        Returns: 
+        z: numpy array, redshift values for this tracer
+        """
         return self.z
 
     def get_nz(self):
+        """ Get the nz values for this tracer. 
+        
+        Returns:
+        nz: numpy array, nz values for this tracer
+        """
         return self.nz
 
 class GalaxyDensityTracerWorkspace:
+    """ A class that handles the workspace for galaxy density tracers. It loads the SACC file and defines the tracers based on the provided parameters.
+    Works in conjunction with the GalaxyDensityTracers class to provide a more structured way to handle galaxy density tracers in cosmological analyses."""
     def __init__(self, sacc_file, tracer_name_root, max_index, cosmology):
         self.sacc_file = sacc_file
         self.tracer_name_root = tracer_name_root
@@ -260,12 +346,27 @@ class GalaxyDensityTracerWorkspace:
         self.data = sc.Sacc.load_fits(sacc_file)
 
     def get_kernel(self, i):
+        """ Get the redshift and nz values for a specific tracer index, without a need to instantiate the GalaxyDensityTracers class.
+
+        Parameters:
+        i: int, index of the tracer
+
+        Returns:
+        z: numpy array, redshift values for the tracer
+        nz: numpy array, nz values for the tracer
+        """
+
         z = self.data.get_tracer(f'{self.tracer_name_root}{i}').z
         nz = self.data.get_tracer(f'{self.tracer_name_root}{i}').nz
 
         return z, nz
 
     def generate_tracer_objects(self):
+        """ Generate the GalaxyDensityTracers objects for all indices up to max_index. This method is called when defining the tracer dictionary.
+        
+        Returns:
+        tracers_obj: list of GalaxyDensityTracers objects, each corresponding to a tracer index from 0 to max_index
+        """
         self.tracers_obj = []
         for i in range(self.max_index+1):
             z, nz = self.get_kernel(i)
@@ -274,6 +375,11 @@ class GalaxyDensityTracerWorkspace:
         return self.tracers_obj
 
     def define_tracer_dict(self):
+        """ Define a dictionary of tracers, where the keys are the tracer names and the values are the corresponding GalaxyDensityTracers objects. 
+        
+        Returns:
+        tracers_dict: dict, keys are tracer names and values are GalaxyDensityTracers objects
+        """
 
         self.generate_tracer_objects()
 
@@ -305,9 +411,11 @@ class GalaxyDensityTracerWorkspace:
 
     
     def cut_c_ells(self, tracer):
+        """ Get the C_ell for a specific tracer, cut to a specific range."""
         tracer.get_cut_data(self.data)
     
 class CIBIntensityTracers:
+    """ A class that represents a CIB intensity tracer. It contains all the relevant information about the tracer, including the redshift, effective source flux, and the kernel for the tracer."""
 
     def __init__(self, tracer_name_root, index, cosmo, snu_z, z_arr, z_min=0., z_max=6.):
         
@@ -391,6 +499,7 @@ class CIBIntensityTracers:
         return ell[mask], cl[mask], mask
 
 class CIBIntensityTracerWorkspace:
+    """ A class that handles the workspace for CIB intensity tracers. It loads the flux fits file and defines the tracers based on the provided parameters."""
 
     def __init__(self, flux_fits_file, cosmology, name_root, sacc_file=None, single_index=None, max_index=None):
         self.data = fits.open(flux_fits_file) #Can i use sacc here?
@@ -408,6 +517,8 @@ class CIBIntensityTracerWorkspace:
         self.single_index = single_index
 
     def define_tracer_objects(self):
+        """ Define the CIB intensity tracer objects based on the provided parameters. Puts them into a list of CIBIntensityTracers objects, which can be used to access the tracers directly."""
+
         self.tracers_obj = []
 
         if self.single_index is None:
@@ -434,6 +545,8 @@ class CIBIntensityTracerWorkspace:
             )
         
     def define_tracer_dict(self):
+        """ Define a dictionary of tracers, where the keys are the tracer names and the values are the corresponding CIBIntensityTracers objects."""
+
         self.define_tracer_objects()
 
         self.tracers_dict = {
@@ -442,6 +555,7 @@ class CIBIntensityTracerWorkspace:
         return self.tracers_dict
     
 class SaccWorkspace:
+    """ A class that handles the SACC file being used in the analysis."""
     def __init__(self, sacc_file=None, tracer_combinations=None):
         self.sacc_file = sacc_file
 
@@ -453,9 +567,27 @@ class SaccWorkspace:
         self.aliases = {}
 
     def get_tracer(self, tracer_name):
+        """ Get a specific tracer from the SACC file.
+        
+        Parameters:
+        tracer_name: str, name of the tracer
+
+        Returns:
+        tracer: sacc.Tracer, the tracer object corresponding to the tracer_name
+        """
         return self.data.get_tracer(tracer_name)
 
     def get_ell_cl(self, tracer1, tracer2):
+        """ Get the C_ell for a specific tracer combination.
+
+        Parameters:
+        tracer1: str, name of the first tracer
+        tracer2: str, name of the second tracer
+
+        Returns:
+        ell_cl: numpy array, C_ell for the tracer combination
+        """
+
         return self.data.get_ell_cl(tracer1, tracer2)
     
     def define_alias(self, tracer_name, alias):
@@ -543,11 +675,30 @@ class SaccWorkspace:
         return s_new
     
     def get_covariance_matrix(self, data_type):
+        """ Get the covariance matrix for a specific data type from the SACC file.
+
+        Parameters:
+        data_type: str, data type for which the covariance matrix is to be extracted
+
+        Returns:
+        cov_matrix: numpy array, covariance matrix for the specified data type
+        """
+
         cov_matrix = self.select_from_sacc(data_type).covariance.covmat
 
         return cov_matrix
 
     def cut_covariance_matrix(self, datatype, mask, width):
+        """ Cut the covariance matrix to a specific range based on a mask and width.
+
+        Parameters:
+        datatype: str, data type for which the covariance matrix is to be obtained and then cut
+        mask: numpy array, boolean mask indicating which elements to keep
+        width: int, width of the mask to be applied - refers to the number of 'blocks' that need to be masked
+
+        Returns:
+        new_cov_matrix: numpy array, cut covariance matrix
+        """
         
         cov_matrix = self.get_covariance_matrix(datatype)
         
@@ -585,6 +736,8 @@ class SaccWorkspace:
         return measured_c_ells
 
 class MaleubreModel():
+    """ Likelihood model for angular power spectra, as described in the paper by Maleubre et al. (TBC)."""
+
     def __init__(self, measured_c_ells, tracer_combos, cosmology, Tracer1Workspace, Tracer2Workspace=None, sacc_workspace=None, logged_N=False):
         self.measured_c_ells = measured_c_ells
         self.Tracer1Workspace = Tracer1Workspace
@@ -617,6 +770,16 @@ class MaleubreModel():
 
     def kernel_squared_integral(self, tracer, tracerwsp):
 
+        """ Calculate the integral of the square of the kernel for a given tracer. Includes a factor of 1/(chi^2), as seen in the literature.
+
+        Parameters:
+        tracer: str, name of the tracer
+        tracerwsp: GalaxyDensityTracerWorkspace, workspace containing the tracer information
+
+        Returns:
+        integral: float, the integral of the square of the kernel for the tracer
+        """
+
         z = self.data.get_tracer(tracer).z
         
         #print(z)
@@ -647,6 +810,17 @@ class MaleubreModel():
         return integral
     
     def kernel_mixed_integral(self, tracer1, tracer2, tracerwsp1, tracerwsp2):
+        """ Calculate the integral of the product of the kernels for two tracers. Includes a factor of 1/(chi^2), as seen in the literature.
+
+        Parameters:
+        tracer1: str, name of the first tracer
+        tracer2: str, name of the second tracer
+        tracerwsp1: GalaxyDensityTracerWorkspace, workspace containing the first tracer information
+        tracerwsp2: GalaxyDensityTracerWorkspace, workspace containing the second tracer information
+
+        Returns:
+        integral: float, the integral of the product of the kernels for the two tracers
+        """
         
         z = self.data.get_tracer(tracer1).z
         a_values = np.linspace(1/(1+z.max()), 1, 100)
@@ -667,6 +841,19 @@ class MaleubreModel():
         
 
     def log_likelihood_function(self, b_gs, N_ggs, A_ggs, N_gnus=None, A_gnus=None, bpsfrs=None):
+        """ Calculate the log-likelihood function for the given parameters. Can be used for only auto-correlations, cross-correlations, or both auto and cross-correlations.
+
+        Parameters:
+        b_gs: list of floats, bias parameters for the galaxy tracers
+        N_ggs: list of floats, noise parameters for the tracer auto-correlations
+        A_ggs: list of floats, amplitude parameters for the tracer auto-correlations
+        N_gnus: list of floats, noise parameters for the tracer cross-correlations (optional)
+        A_gnus: list of floats, amplitude parameters for the tracer cross-correlations (optional)
+        bpsfrs: list of floats, parameters for the bias weighted star formation rate desnsity (optional)
+
+        Returns:
+        logL: float, the log-likelihood value for the given parameters
+        """
 
         if self.logged_N:
             N_ggs = np.power(10, N_ggs)
@@ -719,7 +906,7 @@ class MaleubreModel():
 
                 all_cut_c_ells.append(cut_c_ells)
 
-        '''
+        ''' Plotting the C_ells for debugging purposes
         plt.figure(figsize=(10, 6))
         plt.plot(cut_ells, all_cut_c_ells[1], label='Measured C_ell')
         plt.plot(cut_ells, theory_c_ells[1], label='Theory C_ell')
