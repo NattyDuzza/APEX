@@ -9,6 +9,9 @@ from cobaya.log import LoggedError
 import pandas as pd
 from astropy.io import fits
 
+#extension imports
+import Plots
+
 class MCMCWorkspace:
     """
     A class to handle MCMC runs with a given model and likelihood function. Aims to encapsulate the MCMC configuration and execution, giving a more streamlined interface for setting up and running MCMC simulations. 
@@ -995,6 +998,73 @@ class MaleubreModel():
 
     
         return logL
+
+    def get_modelled_data(self, b_gs, N_ggs, A_ggs, N_gnus=None, A_gnus=None, bpsfrs=None):
+
+        if self.logged_N:
+            N_ggs = np.power(10, N_ggs)
+            if N_gnus is not None:
+                N_gnus = np.power(10, N_gnus)
+
+        tracers1 = self.Tracer1Workspace.define_tracer_dict() 
+
+        try:
+            tracers2 = self.Tracer2Workspace.define_tracer_dict()
+        except AttributeError:
+            tracers2 = tracers1
+
+        tracers = {**tracers1, **tracers2}
+
+        theory_c_ells = []
+        all_cut_c_ells = []
+
+        for i in range(len(self.tracer_combos)):
+            
+
+            if self.tracer_combos[i][0] == self.tracer_combos[i][1]:
+
+                self.workspace = self.workspace_dict[self.tracer_combos[i][0][:-1]]
+
+                mod_val = len(self.workspace.tracers_obj)
+                
+                cut_ells, cut_c_ells, mask = self.workspace.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace)
+
+                theory_c_ells.append(
+                b_gs[i%4]**2 * ccl.angular_cl(
+                    self.cosmology,
+                    tracers[self.tracer_combos[i][0]],
+                    tracers[self.tracer_combos[i][1]],
+                    ell=cut_ells,
+                    p_of_k_a=self.pk2d_mm) + N_ggs[i%4]*self.kernel_squared_integral(self.tracer_combos[i][0], self.workspace) + ccl.angular_cl(self.cosmology, tracers[self.tracer_combos[i][0]], tracers[self.tracer_combos[i][0]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%4]
+                )
+
+                all_cut_c_ells.append(cut_c_ells)
+
+
+            elif self.tracer_combos[i][0] != self.tracer_combos[i][1]: # notes cross-correlations
+
+                self.workspace1 = self.workspace_dict[self.tracer_combos[i][0][:-1]] if self.tracer_combos[i][0] in self.workspace_dict else self.Tracer1Workspace
+                self.workspace2 = self.workspace_dict[self.tracer_combos[i][1][:-1]] if self.tracer_combos[i][1] in self.workspace_dict else self.Tracer2Workspace
+
+                mod_val = len(self.workspace1.tracers_obj)
+
+                cut_ells, cut_c_ells, mask = self.workspace1.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace, tracer_2=self.tracer_combos[i][1]) # get the cut data for the cross-correlation
+
+                theory_c_ells.append(
+                b_gs[i%4] * bpsfrs[i%4] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
+                    self.cosmology,
+                    tracers[self.tracer_combos[i][0]],
+                    tracers[self.tracer_combos[i][1]],
+                    ell=cut_ells,
+                    p_of_k_a=self.pk2d_mm) 
+                    + N_gnus[i%4]*self.kernel_mixed_integral(f'{self.tracer_combos[i][0]}', f'{self.tracer_combos[i][1]}', self.workspace1, self.workspace2) 
+                    + ccl.angular_cl(self.cosmology, tracers[self.tracer_combos[i][0]], tracers[self.tracer_combos[i][1]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%4]
+                )
+
+                all_cut_c_ells.append(cut_c_ells)
+
+        return cut_ells, theory_c_ells, mask
+
 
         
 
