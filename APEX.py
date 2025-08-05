@@ -301,18 +301,30 @@ class GalaxyDensityTracers:
         """
         s = sacc_workspace.data
 
+        tracer = self.name
+
+        #print(f"Getting C_ell for tracer {self.name} and {tracer_2} in range {ell_min}-{ell_max}")
+
+        reverse_order = sacc_workspace.reverse_order
+
+        if self.name in sacc_workspace.aliases:
+            tracer = sacc_workspace.aliases[self.name]
+        if tracer_2 in sacc_workspace.aliases:
+            tracer_2 = sacc_workspace.aliases[tracer_2]
+
         if tracer_2 is None:
-            ell, cl = s.get_ell_cl(None, self.name, self.name, return_cov=False)
+            #print(f"Getting C_ell for tracer {tracer} in range {ell_min}-{ell_max}")
+            ell, cl = s.get_ell_cl(None, tracer, tracer, return_cov=False)
+
+
         else:
 
-            try:
-                tracer_2 = sacc_workspace.aliases[tracer_2]
-                ell, cl = s.get_ell_cl(None, self.name, tracer_2, return_cov=False)
+            if reverse_order:
+                tracer, tracer_2 = tracer_2, tracer
 
-            except KeyError:
-                ell, cl = s.get_ell_cl(None, self.name, tracer_2, return_cov=False)
+            #print(f"Getting C_ell for tracer {tracer} and {tracer_2} in range {ell_min}-{ell_max}")
+            ell, cl = s.get_ell_cl(None, tracer, tracer_2, return_cov=False)
 
-            ell, cl = s.get_ell_cl(None, self.name, tracer_2, return_cov=False)
         
         mask = (ell >= ell_min) & (ell <= ell_max)
         return ell[mask], cl[mask], mask
@@ -391,6 +403,7 @@ class GalaxyDensityTracerWorkspace:
                 bias=(t.z, (1 * np.ones_like(t.z)))  
             ) for t in self.tracers_obj
         }
+        
         return self.tracers_dict
     
     def return_measured_auto_c_ells(self):
@@ -472,7 +485,7 @@ class CIBIntensityTracers:
 
         return tracer
 
-    def get_cut_data(self, s, ell_min=100, ell_max=1000, tracer_2=None):
+    def get_cut_data(self, sacc_workspace, ell_min=100, ell_max=1000, tracer_2=None):
         """
         Get the C_ell for this tracer, cut to a specific range.
         
@@ -484,16 +497,26 @@ class CIBIntensityTracers:
         Returns:
         c_ell: numpy array, C_ell for this tracer in the specified range
         """
+        #print(f"Getting C_ell for tracer {self.name} and {tracer_2} in range {ell_min}-{ell_max}")
+
+        s = sacc_workspace.data
+
+        tracer = self.name
+
+        if self.name in sacc_workspace.aliases:
+            tracer = sacc_workspace.aliases[self.name]
+        if tracer_2 in sacc_workspace.aliases:
+            tracer_2 = sacc_workspace.aliases[tracer_2]
+
         if tracer_2 is None:
-            ell, cl = s.get_ell_cl(None, self.name, self.name, return_cov=False)
+            #print(f"Getting C_ell for tracer {tracer} in range {ell_min}-{ell_max}")
+            ell, cl = s.get_ell_cl(None, tracer, tracer, return_cov=False)
         else:
+    
+            #print(f"Getting C_ell for tracer {tracer} and {tracer_2} in range {ell_min}-{ell_max}")
+            ell, cl = s.get_ell_cl(None, tracer, tracer_2, return_cov=False)
 
-            try:
-                tracer_2 = s.aliases[tracer_2]
-                ell, cl = s.get_ell_cl(None, self.name, tracer_2, return_cov=False)
-
-            except KeyError:
-                ell, cl = s.get_ell_cl(None, self.name, tracer_2, return_cov=False)
+           
         
         mask = (ell >= ell_min) & (ell <= ell_max)
         return ell[mask], cl[mask], mask
@@ -501,17 +524,17 @@ class CIBIntensityTracers:
 class CIBIntensityTracerWorkspace:
     """ A class that handles the workspace for CIB intensity tracers. It loads the flux fits file and defines the tracers based on the provided parameters."""
 
-    def __init__(self, flux_fits_file, cosmology, name_root, sacc_file=None, single_index=None, max_index=None):
+    def __init__(self, flux_fits_file, cosmology, tracer_name_root, sacc_file=None, single_index=None, max_index=None):
         self.data = fits.open(flux_fits_file) #Can i use sacc here?
 
-        self.name_root = name_root
+        self.tracer_name_root = tracer_name_root
 
         if single_index is not None:
             self.zs_CIB = self.data[1].data
-            self.snus_CIB = {f'{name_root}{single_index}':self.data[0].data[single_index+3]/1e6}
+            self.snus_CIB = {f'{tracer_name_root}{single_index}':self.data[0].data[single_index+3]/1e6}
         elif max_index is not None:
             self.zs_CIB = self.data[1].data
-            self.snus_CIB = {f'{name_root}{index}':self.data[0].data[index+3]/1e6 for index in range(max_index+1)}
+            self.snus_CIB = {f'{tracer_name_root}{index}':self.data[0].data[index+3]/1e6 for index in range(max_index+1)}
 
         self.cosmology = cosmology
         self.single_index = single_index
@@ -525,9 +548,9 @@ class CIBIntensityTracerWorkspace:
             for index in range(len(self.snus_CIB)):
                 self.tracers_obj.append(
                     CIBIntensityTracers(
-                        self.name_root, index,
+                        self.tracer_name_root, index,
                         self.cosmology, 
-                        self.snus_CIB[f'{self.name_root}{index}'], 
+                        self.snus_CIB[f'{self.tracer_name_root}{index}'], 
                         self.zs_CIB, 
                         z_min=0., z_max=6.
                     )
@@ -536,13 +559,15 @@ class CIBIntensityTracerWorkspace:
         elif self.single_index is not None:
             self.tracers_obj.append(
                 CIBIntensityTracers(
-                    self.name_root, self.single_index,
+                    self.tracer_name_root, self.single_index,
                     self.cosmology, 
-                    self.snus_CIB[f'{self.name_root}{self.single_index}'], 
+                    self.snus_CIB[f'{self.tracer_name_root}{self.single_index}'], 
                     self.zs_CIB, 
                     z_min=0., z_max=6.
                 )
             )
+
+        return self.tracers_obj
         
     def define_tracer_dict(self):
         """ Define a dictionary of tracers, where the keys are the tracer names and the values are the corresponding CIBIntensityTracers objects."""
@@ -556,8 +581,11 @@ class CIBIntensityTracerWorkspace:
     
 class SaccWorkspace:
     """ A class that handles the SACC file being used in the analysis."""
-    def __init__(self, sacc_file=None, tracer_combinations=None):
+    def __init__(self, sacc_file=None, tracer_combinations=None, reverse_order=False):
         self.sacc_file = sacc_file
+
+        self.reverse_order = reverse_order
+
 
         if type(sacc_file) is str:
             self.data = sc.Sacc.load_fits(sacc_file)
@@ -587,6 +615,9 @@ class SaccWorkspace:
         Returns:
         ell_cl: numpy array, C_ell for the tracer combination
         """
+
+        if self.reverse_order:
+            tracer1, tracer2 = tracer2, tracer1
 
         return self.data.get_ell_cl(tracer1, tracer2)
     
@@ -738,8 +769,8 @@ class SaccWorkspace:
 class MaleubreModel():
     """ Likelihood model for angular power spectra, as described in the paper by Maleubre et al. (TBC)."""
 
-    def __init__(self, measured_c_ells, tracer_combos, cosmology, Tracer1Workspace, Tracer2Workspace=None, sacc_workspace=None, logged_N=False):
-        self.measured_c_ells = measured_c_ells
+    def __init__(self, tracer_combos, cosmology, Tracer1Workspace, Tracer2Workspace=None, sacc_workspace=None, logged_N=False):
+        
         self.Tracer1Workspace = Tracer1Workspace
         self.Tracer2Workspace = Tracer2Workspace
         self.tracer_combos = tracer_combos
@@ -768,6 +799,15 @@ class MaleubreModel():
         Tracer1Workspace.define_tracer_dict()
         Tracer2Workspace.define_tracer_dict() if Tracer2Workspace is not None else None
 
+        if Tracer2Workspace is not None:
+            self.workspace_dict = {}
+
+            root_name_1 = Tracer1Workspace.tracer_name_root
+            root_name_2 = Tracer2Workspace.tracer_name_root
+
+            self.workspace_dict[root_name_1] = Tracer1Workspace
+            self.workspace_dict[root_name_2] = Tracer2Workspace
+
     def kernel_squared_integral(self, tracer, tracerwsp):
 
         """ Calculate the integral of the square of the kernel for a given tracer. Includes a factor of 1/(chi^2), as seen in the literature.
@@ -779,6 +819,9 @@ class MaleubreModel():
         Returns:
         integral: float, the integral of the square of the kernel for the tracer
         """
+        if self.sacc_workspace is not None:
+            if tracer in self.sacc_workspace.aliases:
+                tracer = self.sacc_workspace.aliases[tracer]
 
         z = self.data.get_tracer(tracer).z
         
@@ -821,6 +864,11 @@ class MaleubreModel():
         Returns:
         integral: float, the integral of the product of the kernels for the two tracers
         """
+        if self.sacc_workspace is not None:
+        
+            if self.sacc_workspace.reverse_order:
+                tracer1, tracer2 = tracer2, tracer1
+                tracerwsp1, tracerwsp2 = tracerwsp2, tracerwsp1
         
         z = self.data.get_tracer(tracer1).z
         a_values = np.linspace(1/(1+z.max()), 1, 100)
@@ -855,6 +903,7 @@ class MaleubreModel():
         logL: float, the log-likelihood value for the given parameters
         """
 
+
         if self.logged_N:
             N_ggs = np.power(10, N_ggs)
             if N_gnus is not None:
@@ -867,6 +916,8 @@ class MaleubreModel():
         except AttributeError:
             tracers2 = tracers1
 
+        tracers = {**tracers1, **tracers2}
+
         theory_c_ells = []
         all_cut_c_ells = []
 
@@ -875,15 +926,19 @@ class MaleubreModel():
 
             if self.tracer_combos[i][0] == self.tracer_combos[i][1]:
 
-                cut_ells, cut_c_ells, mask = self.Tracer1Workspace.tracers_obj[i%4].get_cut_data(self.sacc_workspace)
+                self.workspace = self.workspace_dict[self.tracer_combos[i][0][:-1]]
+
+                mod_val = len(self.workspace.tracers_obj)
+                
+                cut_ells, cut_c_ells, mask = self.workspace.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace)
 
                 theory_c_ells.append(
                 b_gs[i%4]**2 * ccl.angular_cl(
                     self.cosmology,
-                    tracers1[self.tracer_combos[i][0]],
-                    tracers1[self.tracer_combos[i][1]],
+                    tracers[self.tracer_combos[i][0]],
+                    tracers[self.tracer_combos[i][1]],
                     ell=cut_ells,
-                    p_of_k_a=self.pk2d_mm) + N_ggs[i%4]*self.kernel_squared_integral(self.tracer_combos[i][0], self.Tracer1Workspace) + ccl.angular_cl(self.cosmology, tracers1[self.tracer_combos[i][0]], tracers1[self.tracer_combos[i][0]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%4]
+                    p_of_k_a=self.pk2d_mm) + N_ggs[i%4]*self.kernel_squared_integral(self.tracer_combos[i][0], self.workspace) + ccl.angular_cl(self.cosmology, tracers[self.tracer_combos[i][0]], tracers[self.tracer_combos[i][0]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%4]
                 )
 
                 all_cut_c_ells.append(cut_c_ells)
@@ -891,22 +946,28 @@ class MaleubreModel():
 
             elif self.tracer_combos[i][0] != self.tracer_combos[i][1]: # notes cross-correlations
 
-                cut_ells, cut_c_ells, mask = self.Tracer1Workspace.tracers_obj[i%4].get_cut_data(self.sacc_workspace, tracer_2=self.tracer_combos[i][1]) # get the cut data for the cross-correlation
+                self.workspace1 = self.workspace_dict[self.tracer_combos[i][0][:-1]] if self.tracer_combos[i][0] in self.workspace_dict else self.Tracer1Workspace
+                self.workspace2 = self.workspace_dict[self.tracer_combos[i][1][:-1]] if self.tracer_combos[i][1] in self.workspace_dict else self.Tracer2Workspace
+
+                mod_val = len(self.workspace1.tracers_obj)
+
+                cut_ells, cut_c_ells, mask = self.workspace1.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace, tracer_2=self.tracer_combos[i][1]) # get the cut data for the cross-correlation
 
                 theory_c_ells.append(
                 b_gs[i%4] * bpsfrs[i%4] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
                     self.cosmology,
-                    tracers1[self.tracer_combos[i][0]],
-                    tracers2[self.tracer_combos[i][1]],
+                    tracers[self.tracer_combos[i][0]],
+                    tracers[self.tracer_combos[i][1]],
                     ell=cut_ells,
                     p_of_k_a=self.pk2d_mm) 
-                    + N_gnus[i%4]*self.kernel_mixed_integral(f'{self.tracer_combos[i][0]}', f'{self.tracer_combos[i][1]}', self.Tracer1Workspace, self.Tracer2Workspace) 
-                    + ccl.angular_cl(self.cosmology, tracers1[self.tracer_combos[i][0]], tracers2[self.tracer_combos[i][1]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%4]
+                    + N_gnus[i%4]*self.kernel_mixed_integral(f'{self.tracer_combos[i][0]}', f'{self.tracer_combos[i][1]}', self.workspace1, self.workspace2) 
+                    + ccl.angular_cl(self.cosmology, tracers[self.tracer_combos[i][0]], tracers[self.tracer_combos[i][1]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%4]
                 )
 
                 all_cut_c_ells.append(cut_c_ells)
 
-        ''' Plotting the C_ells for debugging purposes
+        '''
+        #Plotting the C_ells for debugging purposes
         plt.figure(figsize=(10, 6))
         plt.plot(cut_ells, all_cut_c_ells[1], label='Measured C_ell')
         plt.plot(cut_ells, theory_c_ells[1], label='Theory C_ell')
