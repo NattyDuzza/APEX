@@ -759,15 +759,74 @@ class SaccWorkspace:
         if self.tracer_combinations is None and tracer_combinations is not None:
             self.tracer_combinations = tracer_combinations
         
+        
+        ells = []
         measured_c_ells = []
 
         for tracer in self.tracer_combinations:
             if type(tracer) is not tuple:
                 raise ValueError("Tracer combinations must be tuples of tracer names.")
-            ell, cl = self.data.get_ell_cl(None, tracer[0], tracer[1], return_cov=False)
+            
+          
+            if self.aliases.get(tracer[0]) is not None:
+                tracer1 = self.aliases[tracer[0]]
+            else:
+                tracer1 = tracer[0]
+
+            if self.aliases.get(tracer[1]) is not None:
+                tracer2 = self.aliases[tracer[1]]
+            else:
+                tracer2 = tracer[1]
+            
+
+
+            print(f"Getting C_ell for tracer combination {tracer1} and {tracer2}")
+            ell, cl = self.data.get_ell_cl(None, tracer1, tracer2, return_cov=False) #add check for order flip here
+           
+            ells.append(ell)
             measured_c_ells.append(cl)
 
-        return measured_c_ells
+        return [ells, measured_c_ells]
+    
+    def get_errors(self, tracer_combos=None):
+        """ Get the errors for the C_ell for a specific tracer combination.
+
+        Parameters:
+        tracer_combos: list of tuples, each tuple containing a pair of tracer names
+
+        Returns:
+        errors: list of numpy arrays, each containing the errors for a tracer combination
+        """
+        if self.tracer_combinations is None:
+            self.tracer_combinations = tracer_combos
+        
+        if self.data is None:
+            raise ValueError("SACC data not loaded. Please load the SACC file first.")
+
+        errors = []
+
+            
+
+        for tracer in self.tracer_combinations:
+
+            if self.aliases.get(tracer[0]) is not None:
+                tracer1 = self.aliases[tracer[0]]
+            else:
+                tracer1 = tracer[0]
+
+            if self.aliases.get(tracer[1]) is not None:
+                tracer2 = self.aliases[tracer[1]]
+            else:
+                tracer2 = tracer[1]
+
+
+            if type(tracer) is not tuple:
+                raise ValueError("Tracer combinations must be tuples of tracer names.")
+            ell, cl, cov_matrix = self.data.get_ell_cl(None, tracer1, tracer2, return_cov=True)
+        
+            errors.append(np.sqrt(np.diag(cov_matrix)))
+
+        return errors
 
 class MaleubreModel():
     """ Likelihood model for angular power spectra, as described in the paper by Maleubre et al. (TBC)."""
@@ -1016,6 +1075,8 @@ class MaleubreModel():
         tracers = {**tracers1, **tracers2}
 
         theory_c_ells = []
+
+        cut_ells_arr = []
         all_cut_c_ells = []
 
         for i in range(len(self.tracer_combos)):
@@ -1038,6 +1099,7 @@ class MaleubreModel():
                     p_of_k_a=self.pk2d_mm) + N_ggs[i%4]*self.kernel_squared_integral(self.tracer_combos[i][0], self.workspace) + ccl.angular_cl(self.cosmology, tracers[self.tracer_combos[i][0]], tracers[self.tracer_combos[i][0]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%4]
                 )
 
+                cut_ells_arr.append(cut_ells)
                 all_cut_c_ells.append(cut_c_ells)
 
 
@@ -1061,9 +1123,10 @@ class MaleubreModel():
                     + ccl.angular_cl(self.cosmology, tracers[self.tracer_combos[i][0]], tracers[self.tracer_combos[i][1]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%4]
                 )
 
+                cut_ells_arr.append(cut_ells)
                 all_cut_c_ells.append(cut_c_ells)
 
-        return cut_ells, theory_c_ells, mask
+        return [cut_ells_arr, theory_c_ells, mask]
 
 
         
