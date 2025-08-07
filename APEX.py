@@ -10,7 +10,7 @@ import pandas as pd
 from astropy.io import fits
 
 #extension imports
-import Plots
+from Plots import Plots
 
 class MCMCWorkspace:
     """
@@ -252,6 +252,10 @@ class MCMCWorkspace:
 
         #save the plot
         gdplot.export(f'{name_root}_corner_plot.png')
+
+    from InputHandler import estimate_error
+
+
 
 class GalaxyDensityTracers:
     """ A class that represents a galaxy density tracer. It contains all the relevant information about the tracer."""
@@ -619,10 +623,14 @@ class SaccWorkspace:
         ell_cl: numpy array, C_ell for the tracer combination
         """
 
-        if self.reverse_order:
-            tracer1, tracer2 = tracer2, tracer1
+        if self.aliases.get(f'{tracer1}') is not None:
+            tracer1 = self.aliases[f'{tracer1}']
+        if self.aliases.get(f'{tracer2}') is not None:
+            tracer2 = self.aliases[f'{tracer2}']
 
-        return self.data.get_ell_cl(tracer1, tracer2)
+        print(f"BOO Getting C_ell for tracer {tracer1} and {tracer2}")
+
+        return self.data.get_ell_cl(None, tracer1, tracer2, return_cov=False)
     
     def define_alias(self, tracer_name, alias):
         """
@@ -777,7 +785,7 @@ class SaccWorkspace:
                 tracer2 = self.aliases[tracer[1]]
             else:
                 tracer2 = tracer[1]
-            
+
 
 
             print(f"Getting C_ell for tracer combination {tracer1} and {tracer2}")
@@ -818,6 +826,8 @@ class SaccWorkspace:
                 tracer2 = self.aliases[tracer[1]]
             else:
                 tracer2 = tracer[1]
+
+    
 
 
             if type(tracer) is not tuple:
@@ -1058,7 +1068,7 @@ class MaleubreModel():
     
         return logL
 
-    def get_modelled_data(self, b_gs, N_ggs, A_ggs, N_gnus=None, A_gnus=None, bpsfrs=None):
+    def get_modelled_data(self, b_gs, N_ggs, A_ggs, N_gnus=None, A_gnus=None, bpsfrs=None, full_ells=False):
 
         if self.logged_N:
             N_ggs = np.power(10, N_ggs)
@@ -1074,57 +1084,77 @@ class MaleubreModel():
 
         tracers = {**tracers1, **tracers2}
 
+        print(tracers)
+
         theory_c_ells = []
 
         cut_ells_arr = []
-        all_cut_c_ells = []
+        #all_cut_c_ells = [] - not needed for now
 
         for i in range(len(self.tracer_combos)):
-            
 
-            if self.tracer_combos[i][0] == self.tracer_combos[i][1]:
+            tracer_combo = self.tracer_combos[i]
 
-                self.workspace = self.workspace_dict[self.tracer_combos[i][0][:-1]]
+            if full_ells:
+
+                temp_tracer_combo = tracer_combo
+                if self.sacc_workspace.aliases.get(temp_tracer_combo[0]) is not None:
+                    temp_tracer_combo = (self.sacc_workspace.aliases[temp_tracer_combo[0]], temp_tracer_combo[1])
+                if self.sacc_workspace.aliases.get(tracer_combo[1]) is not None:
+                    temp_tracer_combo = (temp_tracer_combo[0], self.sacc_workspace.aliases[temp_tracer_combo[1]])
+
+                ells = self.sacc_workspace.get_ell_cl(temp_tracer_combo[0], temp_tracer_combo[1])[0]
+                print(f"Using full ells for tracer combination {temp_tracer_combo[0]} and {temp_tracer_combo[1]}")
+
+            if tracer_combo[0] == tracer_combo[1]:
+
+                self.workspace = self.workspace_dict[tracer_combo[0][:-1]]
 
                 mod_val = len(self.workspace.tracers_obj)
                 
                 cut_ells, cut_c_ells, mask = self.workspace.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace)
 
+                if full_ells == False:
+                    ells = cut_ells
+
                 theory_c_ells.append(
                 b_gs[i%4]**2 * ccl.angular_cl(
                     self.cosmology,
-                    tracers[self.tracer_combos[i][0]],
-                    tracers[self.tracer_combos[i][1]],
-                    ell=cut_ells,
-                    p_of_k_a=self.pk2d_mm) + N_ggs[i%4]*self.kernel_squared_integral(self.tracer_combos[i][0], self.workspace) + ccl.angular_cl(self.cosmology, tracers[self.tracer_combos[i][0]], tracers[self.tracer_combos[i][0]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%4]
+                    tracers[tracer_combo[0]],
+                    tracers[tracer_combo[1]],
+                    ell=ells,
+                    p_of_k_a=self.pk2d_mm) + N_ggs[i%4]*self.kernel_squared_integral(tracer_combo[0], self.workspace) + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[0]], ell=ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%4]
                 )
 
                 cut_ells_arr.append(cut_ells)
-                all_cut_c_ells.append(cut_c_ells)
+                #all_cut_c_ells.append(cut_c_ells) - not needed for now
 
 
-            elif self.tracer_combos[i][0] != self.tracer_combos[i][1]: # notes cross-correlations
+            elif tracer_combo[0] != tracer_combo[1]: # notes cross-correlations
 
-                self.workspace1 = self.workspace_dict[self.tracer_combos[i][0][:-1]] if self.tracer_combos[i][0] in self.workspace_dict else self.Tracer1Workspace
-                self.workspace2 = self.workspace_dict[self.tracer_combos[i][1][:-1]] if self.tracer_combos[i][1] in self.workspace_dict else self.Tracer2Workspace
+                self.workspace1 = self.workspace_dict[tracer_combo[0][:-1]] if tracer_combo[0] in self.workspace_dict else self.Tracer1Workspace
+                self.workspace2 = self.workspace_dict[tracer_combo[1][:-1]] if tracer_combo[1] in self.workspace_dict else self.Tracer2Workspace
 
                 mod_val = len(self.workspace1.tracers_obj)
 
-                cut_ells, cut_c_ells, mask = self.workspace1.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace, tracer_2=self.tracer_combos[i][1]) # get the cut data for the cross-correlation
+                cut_ells, cut_c_ells, mask = self.workspace1.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace, tracer_2=tracer_combo[1]) # get the cut data for the cross-correlation
+
+                if full_ells == False:
+                    ells = cut_ells
 
                 theory_c_ells.append(
                 b_gs[i%4] * bpsfrs[i%4] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
                     self.cosmology,
-                    tracers[self.tracer_combos[i][0]],
-                    tracers[self.tracer_combos[i][1]],
-                    ell=cut_ells,
+                    tracers[tracer_combo[0]],
+                    tracers[tracer_combo[1]],
+                    ell=ells,
                     p_of_k_a=self.pk2d_mm) 
-                    + N_gnus[i%4]*self.kernel_mixed_integral(f'{self.tracer_combos[i][0]}', f'{self.tracer_combos[i][1]}', self.workspace1, self.workspace2) 
-                    + ccl.angular_cl(self.cosmology, tracers[self.tracer_combos[i][0]], tracers[self.tracer_combos[i][1]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%4]
+                    + N_gnus[i%4]*self.kernel_mixed_integral(f'{tracer_combo[0]}', f'{tracer_combo[1]}', self.workspace1, self.workspace2) 
+                    + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[1]], ell=ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%4]
                 )
 
                 cut_ells_arr.append(cut_ells)
-                all_cut_c_ells.append(cut_c_ells)
+                #all_cut_c_ells.append(cut_c_ells) - not needed for now
 
         return [cut_ells_arr, theory_c_ells, mask]
 
@@ -1134,7 +1164,10 @@ class MaleubreModel():
         
 
 
-
+def version():
+    """ Return the version of the module."""
+  
+    return "0.0.1"
 
 
 

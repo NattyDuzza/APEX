@@ -1,4 +1,6 @@
 import pymaster as nmt
+import healpy as hp
+import itertools
 
 class SaccWorkspace:
     """ A class that handles the SACC file being used in the analysis, or creates one."""
@@ -182,32 +184,94 @@ class SaccWorkspace:
 
         return measured_c_ells
     
-    # Sacc file creation
 
-    def load_maps_data(self, max_index, file_root, pre_index_name, post_index_name=None):
+    class SaccFileCreation:
+    # Sacc file creation - Using NaMaster
+        def __init__(self, sacc_workspace):
+            self.sacc_workspace = sacc_workspace
 
-        return [hp.read_map(file_root + pre_index_name + str(i) + post_index_name) for i in range(4)]
+        def load_maps_data(self, max_index, file_root, pre_index_name, post_index_name=None):
 
-    def load_mask_data(self, file_root, mask_name):
-        """ Load a mask from a file.
+            return [hp.read_map(file_root + pre_index_name + str(i) + post_index_name) for i in range(4)]
 
-        Parameters:
-        file_root: str, root path to the file
-        mask_name: str, name of the mask file
+        def dictionarize_maps(self, map_list, map_headers):
+            map_dict = {}
 
-        Returns:
-        mask: numpy array, loaded mask data
-        """
-        return hp.read_map(file_root + mask_name)
-    
-    def define_nmt_fields(self, max_index, file_root, pre_index_name, mask_name, post_index_name=None):
+            for i in range(len(map_list)):
+                map_dict[map_headers[i]] = map_list[i]
+
+
+        def load_mask_data(self, file_root, mask_name):
+            """ Load a mask from a file.
+
+            Parameters:
+            file_root: str, root path to the file
+            mask_name: str, name of the mask file
+
+            Returns:
+            mask: numpy array, loaded mask data
+            """
+            return hp.read_map(file_root + mask_name)
         
-        maps = self.load_maps_data(max_index, file_root, pre_index_name, post_index_name)
-        mask = self.load_mask_data(file_root, mask_name)
+        def define_nmt_fields(self, max_index, file_root, pre_index_name, mask_name, post_index_name=None):
+            
+            maps = self.load_maps_data(max_index, file_root, pre_index_name, post_index_name)
+            mask = self.load_mask_data(file_root, mask_name)
 
-        f_map = [nmt.NmtField(mask, [m]) for m in maps]
+            f_map = [nmt.NmtField(mask, [m]) for m in maps]
 
-        return f_map
-    
-    def define_map_naming(self):
+            return f_map
         
+        def define_map_naming(self):
+            pass
+
+        def define_nmt_workspace(self, constituents, combinations, nside=1024, width=40):
+
+            b = nmt.NmtBin.from_nside_linear(nside, width=width)
+
+            workspaces = {}
+            for i in range(len(combinations)):
+                parts = []
+                combo_parts = combinations[i].split('_')
+                for j in range(len(combo_parts)):
+                    parts.append(constituents[combo_parts[j]])
+
+                workspaces[combinations[i]] = nmt.NmtWorkspace.from_fields(*parts, b)
+            
+            self.workspaces = workspaces
+            return workspaces
+
+        def define_nmt_covariance_workspaces(self, constituents, combinations):
+            '''
+            
+            e.g. constituents = {'HSC': [f_map[0]], 'CIB': [f_map[1]],'}
+
+            e.g. combinations = [HSC_HSC, HSC_CIB, CIB_CIB, HSC_CIB_HSC]
+            '''
+            self.constituents = constituents
+            covariance_workspaces = {}
+
+            for i in range(len(combinations)):
+                parts = []
+                combo_parts = combinations[i].split('_')
+                for j in range(len(combo_parts)):
+                    parts.append(constituents[combo_parts[j]][0])
+
+                covariance_workspaces[combinations[i]] = nmt.NmtCovarianceWorkspace()
+                covariance_workspaces[combinations[i]].compute_coupling_coefficients(*parts)
+            
+            self.covariance_workspaces = covariance_workspaces
+            return covariance_workspaces
+
+
+        def build_covariance_matrix(self, map_list, map_headers, map_bin_nums):
+            '''
+            
+            map_bin_nums: list of integers, each integer corresponds to the number of bins in each map
+            '''
+
+            
+
+            
+            
+
