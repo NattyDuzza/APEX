@@ -764,14 +764,14 @@ class SaccWorkspace:
         # Check if self.data is set, else use sacc_file function parameter
         if self.data is None and sacc_file is not None:
             self.data = sc.Sacc.load_fits(sacc_file)
-        if self.tracer_combinations is None and tracer_combinations is not None:
-            self.tracer_combinations = tracer_combinations
+        if tracer_combinations is None:
+            tracer_combinations = self.tracer_combinations
         
         
         ells = []
         measured_c_ells = []
 
-        for tracer in self.tracer_combinations:
+        for tracer in tracer_combinations:
             if type(tracer) is not tuple:
                 raise ValueError("Tracer combinations must be tuples of tracer names.")
             
@@ -841,7 +841,7 @@ class SaccWorkspace:
 class MaleubreModel():
     """ Likelihood model for angular power spectra, as described in the paper by Maleubre et al. (TBC)."""
 
-    def __init__(self, tracer_combos, cosmology, Tracer1Workspace, Tracer2Workspace=None, sacc_workspace=None, logged_N=False):
+    def __init__(self, tracer_combos, cosmology, Tracer1Workspace, Tracer2Workspace=None, sacc_workspace=None, logged_N=False, min_ell=100, max_ell=1000):
         
         self.Tracer1Workspace = Tracer1Workspace
         self.Tracer2Workspace = Tracer2Workspace
@@ -854,6 +854,9 @@ class MaleubreModel():
         self.sacc_workspace = sacc_workspace if sacc_workspace is not None else None
 
         self.data = sacc_workspace.data if sacc_workspace is not None else None
+
+        self.min_ell = min_ell
+        self.max_ell = max_ell
 
         k_arr= np.geomspace(1E-4, 100, 256)
         a_arr = 1. / (1. + np.linspace(0, 6, 16)[::-1])
@@ -1002,7 +1005,7 @@ class MaleubreModel():
 
                 mod_val = len(self.workspace.tracers_obj)
                 
-                cut_ells, cut_c_ells, mask = self.workspace.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace)
+                cut_ells, cut_c_ells, mask = self.workspace.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace, ell_min=self.min_ell, ell_max=self.max_ell) # get the cut data for the auto-correlation
 
                 theory_c_ells.append(
                 b_gs[i%4]**2 * ccl.angular_cl(
@@ -1023,7 +1026,7 @@ class MaleubreModel():
 
                 mod_val = len(self.workspace1.tracers_obj)
 
-                cut_ells, cut_c_ells, mask = self.workspace1.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace, tracer_2=self.tracer_combos[i][1]) # get the cut data for the cross-correlation
+                cut_ells, cut_c_ells, mask = self.workspace1.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace, tracer_2=self.tracer_combos[i][1], ell_min=self.min_ell, ell_max=self.max_ell) # get the cut data for the cross-correlation
 
                 theory_c_ells.append(
                 b_gs[i%4] * bpsfrs[i%4] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
@@ -1112,7 +1115,7 @@ class MaleubreModel():
 
                 mod_val = len(self.workspace.tracers_obj)
                 
-                cut_ells, cut_c_ells, mask = self.workspace.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace)
+                cut_ells, cut_c_ells, mask = self.workspace.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace, ell_min=self.min_ell, ell_max=self.max_ell) # get the cut data for the auto-correlation
 
                 if full_ells == False:
                     ells = cut_ells
@@ -1137,7 +1140,7 @@ class MaleubreModel():
 
                 mod_val = len(self.workspace1.tracers_obj)
 
-                cut_ells, cut_c_ells, mask = self.workspace1.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace, tracer_2=tracer_combo[1]) # get the cut data for the cross-correlation
+                cut_ells, cut_c_ells, mask = self.workspace1.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace, tracer_2=tracer_combo[1], ell_min=self.min_ell, ell_max=self.max_ell) # get the cut data for the cross-correlation
 
                 if full_ells == False:
                     ells = cut_ells
@@ -1166,7 +1169,6 @@ class MaleubreModel():
 
 def version():
     """ Return the version of the module."""
-  
     return "0.0.1"
 
 
