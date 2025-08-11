@@ -11,6 +11,7 @@ from astropy.io import fits
 
 #extension imports
 from Plots import Plots
+from InputHandler import estimate_error
 
 class MCMCWorkspace:
     """
