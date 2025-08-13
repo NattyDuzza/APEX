@@ -9,7 +9,7 @@ class Plots:
 
         self.sacc_workspace = sacc_workspace
 
-    def create_grid_plot(self, subplot_titles, subplot_tracer_combos, measured_data, measured_data_err, modelled_data, residuals=False, cut_positions=None, full_ells=False):
+    def create_grid_plot(self, subplot_titles, subplot_tracer_combos, measured_data, measured_data_err, modelled_data, residuals=False, cut_positions=(None, None), full_ells=False, variable_cuts=False):
         """Create a grid plot with specified subplot titles and tracer combinations.
         
         Parameters:
@@ -21,9 +21,11 @@ class Plots:
 
         outer_grid = fig.add_gridspec(len(subplot_tracer_combos), len(subplot_titles), hspace=0.3, wspace=0.1)
 
-        mask = modelled_data[2]
+        
 
         for i in range(len(subplot_tracer_combos)):
+
+            mask = modelled_data[2][i]
 
             row = i % 4
             col = i // 4
@@ -36,9 +38,15 @@ class Plots:
             if row == 0 and subplot_titles[col] is not None:
                 ax_main.set_title(subplot_titles[col], fontsize=16, pad=20)
 
-            if cut_positions is not None:
-                ax_main.axvspan(0, cut_positions[0], color='gray', alpha=0.5)
-                ax_main.axvspan(cut_positions[1], max(measured_data[0][i]), color='gray', alpha=0.5)
+            if variable_cuts:
+                cut_positions[1] = modelled_data[0][i].max()
+
+                cut_positions[0] = modelled_data[0][i].min()
+
+            print(max(measured_data[0][i]), cut_positions[1])
+
+            ax_main.axvspan(0, cut_positions[0], color='gray', alpha=0.5)
+            ax_main.axvspan(cut_positions[1], max(measured_data[0][i]), color='gray', alpha=0.5)
             
             #set ax limits
             ax_main.set_xlim(min(0.8*measured_data[0][i]), max(measured_data[0][i])*1.05)

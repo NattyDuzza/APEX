@@ -414,6 +414,7 @@ class GalaxyDensityTracerWorkspace:
         
         return self.tracers_dict
     
+    
     def return_measured_auto_c_ells(self):
         """
         Return the measured auto C_ells for all tracers.
@@ -493,7 +494,7 @@ class CIBIntensityTracers:
 
         return tracer
 
-    def get_cut_data(self, sacc_workspace, ell_min=100, ell_max=1000, tracer_2=None):
+    def get_cut_data(self, sacc_workspace, ell_min=100, ell_max=1000, tracer_2=None, chi_max=None):
         """
         Get the C_ell for this tracer, cut to a specific range.
         
@@ -524,7 +525,6 @@ class CIBIntensityTracers:
             #print(f"Getting C_ell for tracer {tracer} and {tracer_2} in range {ell_min}-{ell_max}")
             ell, cl = s.get_ell_cl(None, tracer, tracer_2, return_cov=False)
 
-           
         
         mask = (ell >= ell_min) & (ell <= ell_max)
         return ell[mask], cl[mask], mask
@@ -645,7 +645,7 @@ class SaccWorkspace:
 
         print(self.aliases)
 
-    def select_from_sacc(self, data_type):
+    def select_from_sacc(self, data_type, tracer_combo=None):
         '''
         FROM DR TOM CORNISH, University of Oxford, 2025.
 
@@ -674,7 +674,11 @@ class SaccWorkspace:
         import sacc
 
         s = self.sacc_file
-        tracer_combos = self.tracer_combinations
+
+        if tracer_combo is None:
+            tracer_combos = self.tracer_combinations
+        else:
+            tracer_combos = [tracer_combo]
         
         # Check if input is a string
         if type(s) is str:
@@ -699,7 +703,6 @@ class SaccWorkspace:
             if self.aliases.get(tc[1]) is not None:
                 tc = (tc[0], self.aliases[f'{tc[1]}'])
             
-
             ells, cells, inds = s.get_ell_cl(data_type, *tc, return_ind=True)
             # Get the window functions
             wins = s.get_bandpower_windows(inds)
@@ -717,7 +720,7 @@ class SaccWorkspace:
 
         return s_new
     
-    def get_covariance_matrix(self, data_type):
+    def get_covariance_matrix(self, data_type, tracer_combo=None):
         """ Get the covariance matrix for a specific data type from the SACC file.
 
         Parameters:
@@ -727,11 +730,11 @@ class SaccWorkspace:
         cov_matrix: numpy array, covariance matrix for the specified data type
         """
 
-        cov_matrix = self.select_from_sacc(data_type).covariance.covmat
+        cov_matrix = self.select_from_sacc(data_type, tracer_combo=tracer_combo).covariance.covmat
 
         return cov_matrix
 
-    def cut_covariance_matrix(self, datatype, mask, width):
+    def cut_covariance_matrix(self, datatype, mask, width, tracer_combo=None):
         """ Cut the covariance matrix to a specific range based on a mask and width.
 
         Parameters:
@@ -743,7 +746,7 @@ class SaccWorkspace:
         new_cov_matrix: numpy array, cut covariance matrix
         """
         
-        cov_matrix = self.get_covariance_matrix(datatype)
+        cov_matrix = self.get_covariance_matrix(datatype, tracer_combo=tracer_combo)
         
         cut_ell_mask_full = np.tile(mask, width)
 
@@ -842,7 +845,7 @@ class SaccWorkspace:
 class MaleubreModel():
     """ Likelihood model for angular power spectra, as described in the paper by Maleubre et al. (TBC)."""
 
-    def __init__(self, tracer_combos, cosmology, Tracer1Workspace, Tracer2Workspace=None, sacc_workspace=None, logged_N=False, min_ell=100, max_ell=1000):
+    def __init__(self, tracer_combos, cosmology, Tracer1Workspace, Tracer2Workspace=None, sacc_workspace=None, logged_N=False, min_ell=100, max_ell=1000, k_max=None):
         
         self.Tracer1Workspace = Tracer1Workspace
         self.Tracer2Workspace = Tracer2Workspace
@@ -883,6 +886,8 @@ class MaleubreModel():
 
             self.workspace_dict[root_name_1] = Tracer1Workspace
             self.workspace_dict[root_name_2] = Tracer2Workspace
+        
+        self.k_max = k_max
 
     def kernel_squared_integral(self, tracer, tracerwsp):
 
@@ -996,11 +1001,22 @@ class MaleubreModel():
 
         theory_c_ells = []
         all_cut_c_ells = []
+        masks = []
 
         for i in range(len(self.tracer_combos)):
+            if self.k_max is not None:
+                self.max_ell = self.get_ell_max(self.tracer_combos[i][0])
             
+            '''
+            print(self.tracer_combos[i])
+            print(len(b_gs), len(N_ggs), len(A_ggs), len(N_gnus), len(A_gnus), len(bpsfrs))
+            print("INDEX:", i)
+
+            print(i, i%len(b_gs), i%len(N_ggs), i%len(A_ggs), i%len(N_gnus), i%len(A_gnus), i%len(bpsfrs))
+            '''
 
             if self.tracer_combos[i][0] == self.tracer_combos[i][1]:
+
 
                 self.workspace = self.workspace_dict[self.tracer_combos[i][0][:-1]]
 
@@ -1009,15 +1025,16 @@ class MaleubreModel():
                 cut_ells, cut_c_ells, mask = self.workspace.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace, ell_min=self.min_ell, ell_max=self.max_ell) # get the cut data for the auto-correlation
 
                 theory_c_ells.append(
-                b_gs[i%4]**2 * ccl.angular_cl(
+                b_gs[i%len(b_gs)]**2 * ccl.angular_cl(
                     self.cosmology,
                     tracers[self.tracer_combos[i][0]],
                     tracers[self.tracer_combos[i][1]],
                     ell=cut_ells,
-                    p_of_k_a=self.pk2d_mm) + N_ggs[i%4]*self.kernel_squared_integral(self.tracer_combos[i][0], self.workspace) + ccl.angular_cl(self.cosmology, tracers[self.tracer_combos[i][0]], tracers[self.tracer_combos[i][0]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%4]
+                    p_of_k_a=self.pk2d_mm) + N_ggs[i%len(N_ggs)]*self.kernel_squared_integral(self.tracer_combos[i][0], self.workspace) + ccl.angular_cl(self.cosmology, tracers[self.tracer_combos[i][0]], tracers[self.tracer_combos[i][0]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%len(A_ggs)]
                 )
 
                 all_cut_c_ells.append(cut_c_ells)
+                masks.append(mask)
 
 
             elif self.tracer_combos[i][0] != self.tracer_combos[i][1]: # notes cross-correlations
@@ -1030,18 +1047,18 @@ class MaleubreModel():
                 cut_ells, cut_c_ells, mask = self.workspace1.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace, tracer_2=self.tracer_combos[i][1], ell_min=self.min_ell, ell_max=self.max_ell) # get the cut data for the cross-correlation
 
                 theory_c_ells.append(
-                b_gs[i%4] * bpsfrs[i%4] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
+                b_gs[i%len(b_gs)] * bpsfrs[i%len(bpsfrs)] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
                     self.cosmology,
                     tracers[self.tracer_combos[i][0]],
                     tracers[self.tracer_combos[i][1]],
                     ell=cut_ells,
                     p_of_k_a=self.pk2d_mm) 
-                    + N_gnus[i%4]*self.kernel_mixed_integral(f'{self.tracer_combos[i][0]}', f'{self.tracer_combos[i][1]}', self.workspace1, self.workspace2) 
-                    + ccl.angular_cl(self.cosmology, tracers[self.tracer_combos[i][0]], tracers[self.tracer_combos[i][1]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%4]
+                    + N_gnus[i%len(N_gnus)]*self.kernel_mixed_integral(f'{self.tracer_combos[i][0]}', f'{self.tracer_combos[i][1]}', self.workspace1, self.workspace2) 
+                    + ccl.angular_cl(self.cosmology, tracers[self.tracer_combos[i][0]], tracers[self.tracer_combos[i][1]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%len(A_gnus)]
                 )
 
                 all_cut_c_ells.append(cut_c_ells)
-
+                masks.append(mask)
         '''
         #Plotting the C_ells for debugging purposes
         plt.figure(figsize=(10, 6))
@@ -1057,19 +1074,28 @@ class MaleubreModel():
 
         plt.savefig('C_ell_comparison.png')
         '''
-        mask_width = len(self.tracer_combos) if self.tracer_combos is not None else 1
-        #print(f"Mask width: {mask_width}")
-     
-
-        covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', mask, mask_width)
-
-        icov = np.linalg.inv(covariance)
-
-        diff = np.concatenate(all_cut_c_ells) - np.concatenate(theory_c_ells)
+        if self.k_max is None:
+            mask_width = len(self.tracer_combos) if self.tracer_combos is not None else 1
+            #print(f"Mask width: {mask_width}")
         
-        logL = -0.5 *np.dot(diff, np.dot(icov, diff))
 
-    
+            covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', masks[0], mask_width)
+
+            icov = np.linalg.inv(covariance)
+
+            diff = np.concatenate(all_cut_c_ells) - np.concatenate(theory_c_ells)
+            
+            logL = -0.5 *np.dot(diff, np.dot(icov, diff))
+
+        else:
+            mask_width = 1
+            logL = 0.0
+            for i in range(len(all_cut_c_ells)):
+                covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', masks[i], mask_width, tracer_combo=self.tracer_combos[i])
+                icov = np.linalg.inv(covariance)
+                diff = all_cut_c_ells[i] - theory_c_ells[i]
+                logL += -0.5 * np.dot(diff, np.dot(icov, diff))
+        
         return logL
 
     def get_modelled_data(self, b_gs, N_ggs, A_ggs, N_gnus=None, A_gnus=None, bpsfrs=None, full_ells=False):
@@ -1093,9 +1119,14 @@ class MaleubreModel():
         theory_c_ells = []
 
         cut_ells_arr = []
+
+        masks = []
         #all_cut_c_ells = [] - not needed for now
 
         for i in range(len(self.tracer_combos)):
+
+            if self.k_max is not None:
+                self.max_ell = self.get_ell_max(self.tracer_combos[i][0])
 
             tracer_combo = self.tracer_combos[i]
 
@@ -1122,15 +1153,16 @@ class MaleubreModel():
                     ells = cut_ells
 
                 theory_c_ells.append(
-                b_gs[i%4]**2 * ccl.angular_cl(
+                b_gs[i%len(b_gs)]**2 * ccl.angular_cl(
                     self.cosmology,
                     tracers[tracer_combo[0]],
                     tracers[tracer_combo[1]],
                     ell=ells,
-                    p_of_k_a=self.pk2d_mm) + N_ggs[i%4]*self.kernel_squared_integral(tracer_combo[0], self.workspace) + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[0]], ell=ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%4]
+                    p_of_k_a=self.pk2d_mm) + N_ggs[i%len(N_ggs)]*self.kernel_squared_integral(tracer_combo[0], self.workspace) + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[0]], ell=ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%len(A_ggs)]
                 )
 
                 cut_ells_arr.append(cut_ells)
+                masks.append(mask)
                 #all_cut_c_ells.append(cut_c_ells) - not needed for now
 
 
@@ -1147,24 +1179,36 @@ class MaleubreModel():
                     ells = cut_ells
 
                 theory_c_ells.append(
-                b_gs[i%4] * bpsfrs[i%4] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
+                b_gs[i%len(b_gs)] * bpsfrs[i%len(bpsfrs)] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
                     self.cosmology,
                     tracers[tracer_combo[0]],
                     tracers[tracer_combo[1]],
                     ell=ells,
                     p_of_k_a=self.pk2d_mm) 
-                    + N_gnus[i%4]*self.kernel_mixed_integral(f'{tracer_combo[0]}', f'{tracer_combo[1]}', self.workspace1, self.workspace2) 
-                    + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[1]], ell=ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%4]
+                    + N_gnus[i%len(N_gnus)]*self.kernel_mixed_integral(f'{tracer_combo[0]}', f'{tracer_combo[1]}', self.workspace1, self.workspace2) 
+                    + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[1]], ell=ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%len(A_gnus)]
                 )
 
                 cut_ells_arr.append(cut_ells)
+                masks.append(mask)
                 #all_cut_c_ells.append(cut_c_ells) - not needed for now
 
-        return [cut_ells_arr, theory_c_ells, mask]
+        return [cut_ells_arr, theory_c_ells, masks]
 
-
+    def get_ell_max(self, tracer):
         
+        z = self.data.get_tracer(tracer).z
+        nz = self.data.get_tracer(tracer).nz
 
+        weighted_z = np.average(z, weights=nz)
+        
+        a_values = np.linspace(1/(1+weighted_z), 1, 100)
+
+        chi_values = ccl.comoving_radial_distance(self.cosmology, a_values)[::-1]
+        
+        ell_max = self.k_max * max(chi_values) - 0.5
+
+        return np.int(ell_max)
         
 
 
