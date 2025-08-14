@@ -357,12 +357,12 @@ class GalaxyDensityTracers:
 class GalaxyDensityTracerWorkspace:
     """ A class that handles the workspace for galaxy density tracers. It loads the SACC file and defines the tracers based on the provided parameters.
     Works in conjunction with the GalaxyDensityTracers class to provide a more structured way to handle galaxy density tracers in cosmological analyses."""
-    def __init__(self, sacc_file, tracer_name_root, max_index, cosmology):
+    def __init__(self, sacc_file, tracer_name_root, cosmology, single_index=None, max_index=None):
         self.sacc_file = sacc_file
         self.tracer_name_root = tracer_name_root
         self.max_index = max_index
         self.cosmology = cosmology
-
+        self.single_index = single_index
         
         self.data = sc.Sacc.load_fits(sacc_file)
 
@@ -389,9 +389,14 @@ class GalaxyDensityTracerWorkspace:
         tracers_obj: list of GalaxyDensityTracers objects, each corresponding to a tracer index from 0 to max_index
         """
         self.tracers_obj = []
-        for i in range(self.max_index+1):
-            z, nz = self.get_kernel(i)
-            self.tracers_obj.append(GalaxyDensityTracers(self.tracer_name_root, i, z, nz, self.sacc_file))
+
+        if self.single_index is None:
+            for i in range(self.max_index+1):
+                z, nz = self.get_kernel(i)
+                self.tracers_obj.append(GalaxyDensityTracers(self.tracer_name_root, i, z, nz, self.sacc_file))
+        elif self.single_index is not None:
+            z, nz = self.get_kernel(self.single_index)
+            self.tracers_obj.append(GalaxyDensityTracers(self.tracer_name_root, self.single_index, z, nz, self.sacc_file))
         
         return self.tracers_obj
 
@@ -679,7 +684,7 @@ class SaccWorkspace:
         if tracer_combo is None:
             tracer_combos = self.tracer_combinations
         else:
-            tracer_combos = [tracer_combo]
+            tracer_combos = tracer_combo
         
         # Check if input is a string
         if type(s) is str:
@@ -795,9 +800,6 @@ class SaccWorkspace:
             else:
                 tracer2 = tracer[1]
 
-
-
-            print(f"Getting C_ell for tracer combination {tracer1} and {tracer2}")
             ell, cl = self.data.get_ell_cl(None, tracer1, tracer2, return_cov=False) #add check for order flip here
            
             ells.append(ell)
@@ -1009,7 +1011,7 @@ class MaleubreModel():
         masks = []
 
         for i in range(len(self.tracer_combos)):
-            print(f"Calculating log-likelihood for tracer combination {self.tracer_combos[i]}")
+            
             if self.k_max is not None:
                 self.max_ell = self.get_ell_max(self.tracer_combos[i])
             
@@ -1057,23 +1059,16 @@ class MaleubreModel():
 
                 all_cut_c_ells.append(cut_c_ells)
                 masks.append(mask)
+           
+
+        covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', masks)
+
+        icov = np.linalg.inv(covariance)
+
+        diff = np.concatenate(all_cut_c_ells) - np.concatenate(theory_c_ells)
         
-        if self.k_max is None:        
+        logL = -0.5 *np.dot(diff, np.dot(icov, diff))
 
-            covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', masks)
-
-            icov = np.linalg.inv(covariance)
-
-            diff = np.concatenate(all_cut_c_ells) - np.concatenate(theory_c_ells)
-            
-            logL = -0.5 *np.dot(diff, np.dot(icov, diff))
-
-        else:
-            
-            covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', masks, tracer_combos=self.tracer_combos)
-            icov = np.linalg.inv(covariance)
-            diff = all_cut_c_ells - theory_c_ells
-            logL = -0.5 * np.dot(diff, np.dot(icov, diff))
         
         return logL
 
@@ -1116,7 +1111,7 @@ class MaleubreModel():
                     temp_tracer_combo = (temp_tracer_combo[0], self.sacc_workspace.aliases[temp_tracer_combo[1]])
 
                 ells = self.sacc_workspace.get_ell_cl(temp_tracer_combo[0], temp_tracer_combo[1])[0]
-                print(f"Using full ells for tracer combination {temp_tracer_combo[0]} and {temp_tracer_combo[1]}")
+        
 
             if tracer_combo[0] == tracer_combo[1]:
 
