@@ -718,7 +718,7 @@ class SaccWorkspace:
 
         return s_new
     
-    def get_covariance_matrix(self, data_type, tracer_combo=None):
+    def get_covariance_matrix(self, data_type, tracer_combos=None):
         """ Get the covariance matrix for a specific data type from the SACC file.
 
         Parameters:
@@ -728,11 +728,11 @@ class SaccWorkspace:
         cov_matrix: numpy array, covariance matrix for the specified data type
         """
 
-        cov_matrix = self.select_from_sacc(data_type, tracer_combo=tracer_combo).covariance.covmat
+        cov_matrix = self.select_from_sacc(data_type, tracer_combo=tracer_combos).covariance.covmat
 
         return cov_matrix
 
-    def cut_covariance_matrix(self, datatype, mask, width, tracer_combo=None):
+    def cut_covariance_matrix(self, datatype, masks, tracer_combos=None):
         """ Cut the covariance matrix to a specific range based on a mask and width.
 
         Parameters:
@@ -743,12 +743,13 @@ class SaccWorkspace:
         Returns:
         new_cov_matrix: numpy array, cut covariance matrix
         """
-        
-        cov_matrix = self.get_covariance_matrix(datatype, tracer_combo=tracer_combo)
-        
-        cut_ell_mask_full = np.tile(mask, width)
+        masks = np.array(masks).flatten()
+        nkeep = int(masks.sum())
+        covmask = np.outer(masks, masks)
 
-        new_cov_matrix = cov_matrix[cut_ell_mask_full, :][:, cut_ell_mask_full]
+        cov_matrix = self.get_covariance_matrix(datatype, tracer_combos=tracer_combos)
+        
+        new_cov_matrix = cov_matrix[covmask].reshape((nkeep, nkeep))
         return new_cov_matrix
 
     def get_c_ells(self, sacc_file=None, tracer_combinations=None):
@@ -1072,12 +1073,9 @@ class MaleubreModel():
 
         plt.savefig('C_ell_comparison.png')
         '''
-        if self.k_max is None:
-            mask_width = len(self.tracer_combos) if self.tracer_combos is not None else 1
-            #print(f"Mask width: {mask_width}")
-        
+        if self.k_max is None:        
 
-            covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', masks[0], mask_width)
+            covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', masks)
 
             icov = np.linalg.inv(covariance)
 
@@ -1088,11 +1086,11 @@ class MaleubreModel():
         else:
             mask_width = 1
             logL = 0.0
-            for i in range(len(all_cut_c_ells)):
-                covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', masks[i], mask_width, tracer_combo=self.tracer_combos[i])
-                icov = np.linalg.inv(covariance)
-                diff = all_cut_c_ells[i] - theory_c_ells[i]
-                logL += -0.5 * np.dot(diff, np.dot(icov, diff))
+            
+            covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', masks, mask_width, tracer_combos=self.tracer_combos)
+            icov = np.linalg.inv(covariance)
+            diff = all_cut_c_ells - theory_c_ells
+            logL += -0.5 * np.dot(diff, np.dot(icov, diff))
         
         return logL
 
@@ -1215,7 +1213,7 @@ class MaleubreModel():
 
 def version():
     """ Return the version of the module."""
-    return "0.0.1"
+    return "0.0.1b"
 
 
 
