@@ -320,10 +320,11 @@ class GalaxyDensityTracers:
         if tracer_2 in sacc_workspace.aliases:
             tracer_2 = sacc_workspace.aliases[tracer_2]
 
+        #print(f"Getting C_ell for tracer {tracer} and {tracer_2} in range {ell_min}-{ell_max}")
+
         if tracer_2 is None:
             #print(f"Getting C_ell for tracer {tracer} in range {ell_min}-{ell_max}")
             ell, cl = s.get_ell_cl(None, tracer, tracer, return_cov=False)
-
 
         else:
 
@@ -517,6 +518,8 @@ class CIBIntensityTracers:
         if tracer_2 in sacc_workspace.aliases:
             tracer_2 = sacc_workspace.aliases[tracer_2]
 
+        #print(f"Getting C_ell for tracer {tracer} and {tracer_2} in range {ell_min}-{ell_max}")
+        
         if tracer_2 is None:
             #print(f"Getting C_ell for tracer {tracer} in range {ell_min}-{ell_max}")
             ell, cl = s.get_ell_cl(None, tracer, tracer, return_cov=False)
@@ -746,6 +749,9 @@ class SaccWorkspace:
         masks = np.array(masks).flatten()
         nkeep = int(masks.sum())
         covmask = np.outer(masks, masks)
+
+        if tracer_combos is None:
+            tracer_combos = self.tracer_combinations
 
         cov_matrix = self.get_covariance_matrix(datatype, tracer_combos=tracer_combos)
         
@@ -1003,17 +1009,10 @@ class MaleubreModel():
         masks = []
 
         for i in range(len(self.tracer_combos)):
+            print(f"Calculating log-likelihood for tracer combination {self.tracer_combos[i]}")
             if self.k_max is not None:
                 self.max_ell = self.get_ell_max(self.tracer_combos[i])
             
-            '''
-            print(self.tracer_combos[i])
-            print(len(b_gs), len(N_ggs), len(A_ggs), len(N_gnus), len(A_gnus), len(bpsfrs))
-            print("INDEX:", i)
-
-            print(i, i%len(b_gs), i%len(N_ggs), i%len(A_ggs), i%len(N_gnus), i%len(A_gnus), i%len(bpsfrs))
-            '''
-
             if self.tracer_combos[i][0] == self.tracer_combos[i][1]:
 
 
@@ -1058,21 +1057,7 @@ class MaleubreModel():
 
                 all_cut_c_ells.append(cut_c_ells)
                 masks.append(mask)
-        '''
-        #Plotting the C_ells for debugging purposes
-        plt.figure(figsize=(10, 6))
-        plt.plot(cut_ells, all_cut_c_ells[1], label='Measured C_ell')
-        plt.plot(cut_ells, theory_c_ells[1], label='Theory C_ell')
-        plt.xlabel('Ell')
-        plt.ylabel('C_ell')
-        plt.title('C_ell Comparison')
-        plt.legend()
-
-        plt.xscale('log')
-        plt.yscale('log')
-
-        plt.savefig('C_ell_comparison.png')
-        '''
+        
         if self.k_max is None:        
 
             covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', masks)
@@ -1084,13 +1069,11 @@ class MaleubreModel():
             logL = -0.5 *np.dot(diff, np.dot(icov, diff))
 
         else:
-            mask_width = 1
-            logL = 0.0
             
-            covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', masks, mask_width, tracer_combos=self.tracer_combos)
+            covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', masks, tracer_combos=self.tracer_combos)
             icov = np.linalg.inv(covariance)
             diff = all_cut_c_ells - theory_c_ells
-            logL += -0.5 * np.dot(diff, np.dot(icov, diff))
+            logL = -0.5 * np.dot(diff, np.dot(icov, diff))
         
         return logL
 
