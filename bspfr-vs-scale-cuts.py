@@ -122,10 +122,10 @@ tracer_combos = [(f'{chosen_tracer}0', f'{chosen_tracer}0'),
                  (f'{chosen_tracer}2', f'{chosen_tracer}2'),
                  (f'{chosen_tracer}3', f'{chosen_tracer}3'),
 
-                 (f'{chosen_tracer}0', 'CIBLenz__3'),
-                 (f'{chosen_tracer}1', 'CIBLenz__3'),
-                 (f'{chosen_tracer}2', 'CIBLenz__3'),
-                 (f'{chosen_tracer}3', 'CIBLenz__3')
+                 ('CIBLenz__3', f'{chosen_tracer}0'),
+                 ('CIBLenz__3', f'{chosen_tracer}1'),
+                 ('CIBLenz__3', f'{chosen_tracer}2'),
+                 ('CIBLenz__3', f'{chosen_tracer}3')
                  ]
 
 gdwsp = ap.GalaxyDensityTracerWorkspace(
@@ -147,8 +147,8 @@ bpsfrs3 = []
 for i in k:
     
     mmodel = ap.MaleubreModel(
-        Tracer1Workspace=gdwsp,
-        Tracer2Workspace=cibwsp,
+        Tracer1Workspace=cibwsp,
+        Tracer2Workspace=gdwsp,
         tracer_combos=tracer_combos,
         sacc_workspace=s,
         cosmology=cosmo,

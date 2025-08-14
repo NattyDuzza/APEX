@@ -629,8 +629,6 @@ class SaccWorkspace:
         if self.aliases.get(f'{tracer2}') is not None:
             tracer2 = self.aliases[f'{tracer2}']
 
-        print(f"BOO Getting C_ell for tracer {tracer1} and {tracer2}")
-
         return self.data.get_ell_cl(None, tracer1, tracer2, return_cov=False)
     
     def define_alias(self, tracer_name, alias):
@@ -950,20 +948,12 @@ class MaleubreModel():
             if self.sacc_workspace.reverse_order:
                 tracer1, tracer2 = tracer2, tracer1
                 tracerwsp1, tracerwsp2 = tracerwsp2, tracerwsp1
-
-            if self.sacc_workspace.aliases.get(f'{tracer1}') is not None:
-                tracer1 = self.sacc_workspace.aliases[f'{tracer1}']
-            if self.sacc_workspace.aliases.get(f'{tracer2}') is not None:
-                tracer2 = self.sacc_workspace.aliases[f'{tracer2}']
-
-        print(tracer1)
+        
         z = self.data.get_tracer(tracer1).z
         a_values = np.linspace(1/(1+z.max()), 1, 100)
 
         chi_values = ccl.comoving_radial_distance(self.cosmology, a_values)[::-1]
         chi_values = chi_values[chi_values > 0]
-
-        print(tracerwsp2.tracers_dict)
 
         kernel1 = tracerwsp1.tracers_dict[tracer1].get_kernel(chi_values)[0]
         kernel2 = tracerwsp2.tracers_dict[tracer2].get_kernel(chi_values)[0]
@@ -1013,7 +1003,7 @@ class MaleubreModel():
 
         for i in range(len(self.tracer_combos)):
             if self.k_max is not None:
-                self.max_ell = self.get_ell_max(self.tracer_combos[i][0])
+                self.max_ell = self.get_ell_max(self.tracer_combos[i])
             
             '''
             print(self.tracer_combos[i])
@@ -1122,8 +1112,6 @@ class MaleubreModel():
 
         tracers = {**tracers1, **tracers2}
 
-        print(tracers)
-
         theory_c_ells = []
 
         cut_ells_arr = []
@@ -1134,7 +1122,7 @@ class MaleubreModel():
         for i in range(len(self.tracer_combos)):
 
             if self.k_max is not None:
-                self.max_ell = self.get_ell_max(self.tracer_combos[i][0])
+                self.max_ell = self.get_ell_max(self.tracer_combos[i])
 
             tracer_combo = self.tracer_combos[i]
 
@@ -1203,7 +1191,12 @@ class MaleubreModel():
 
         return [cut_ells_arr, theory_c_ells, masks]
 
-    def get_ell_max(self, tracer):
+    def get_ell_max(self, tracers):
+
+        if self.sacc_workspace.reverse_order:
+            tracer = tracers[1]
+        else:
+            tracer = tracers[0]
         
         z = self.data.get_tracer(tracer).z
         nz = self.data.get_tracer(tracer).nz
