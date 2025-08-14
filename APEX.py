@@ -950,12 +950,20 @@ class MaleubreModel():
             if self.sacc_workspace.reverse_order:
                 tracer1, tracer2 = tracer2, tracer1
                 tracerwsp1, tracerwsp2 = tracerwsp2, tracerwsp1
-        
+
+            if self.sacc_workspace.aliases.get(f'{tracer1}') is not None:
+                tracer1 = self.sacc_workspace.aliases[f'{tracer1}']
+            if self.sacc_workspace.aliases.get(f'{tracer2}') is not None:
+                tracer2 = self.sacc_workspace.aliases[f'{tracer2}']
+
+        print(tracer1)
         z = self.data.get_tracer(tracer1).z
         a_values = np.linspace(1/(1+z.max()), 1, 100)
 
         chi_values = ccl.comoving_radial_distance(self.cosmology, a_values)[::-1]
         chi_values = chi_values[chi_values > 0]
+
+        print(tracerwsp2.tracers_dict)
 
         kernel1 = tracerwsp1.tracers_dict[tracer1].get_kernel(chi_values)[0]
         kernel2 = tracerwsp2.tracers_dict[tracer2].get_kernel(chi_values)[0]
