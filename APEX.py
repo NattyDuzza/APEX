@@ -20,6 +20,20 @@ class MCMCWorkspace:
 
 
     def __init__(self, sacc_file=None, model=None, likelihood_function=None, full_info=None, params=None):
+        ''' Initializes the MCMC workspace with a SACC file, model, and likelihood function.
+
+        Parameters:
+        sacc_file: str, path to the SACC file containing the data
+        model: Model object, the model to be used in the MCMC run
+        likelihood_function: str, name of the likelihood function to be used - should be a methof of the model object
+        full_info: dict, full information about the MCMC run, including parameters, priors, references, proposals, and grouped parameters - allows for a setup akin to cobaya's native MCMC configuration.
+        params: list of str, names of the parameters to be used in the MCMC run - if full_info is provided, this will be ignored.
+        
+        Note: If full_info is provided, the MCMC configuration will be set based on that information, otherwise it will be set based on the provided parameters, priors, references, and proposals. MCMC_config can be called later to update the configuration.
+        '''
+
+
+
         self.sacc_file = sacc_file
 
         try:
@@ -163,13 +177,25 @@ class MCMCWorkspace:
         print(self.info)
 
     def serial_run(self):
-        """ Run the MCMC simulation in serial mode. """
+        """ Run the MCMC simulation in serial mode. 
+        
+        Returns:
+        updated_info: dict, updated information after running the MCMC simulation
+        sampler: cobaya.sampler.Sampler, the sampler object containing the results of the MCMC run
+        """
+
         updated_info, self.sampler = cb.run(self.info)
         return updated_info, self.sampler
     
     def mpi_run(self):
         """ Run the MCMC simulation in MPI mode. This method is designed to be run in a distributed environment using MPI. 
-        It initializes the MPI communicator, runs the MCMC simulation, and gathers the results across all processes. """
+        It initializes the MPI communicator, runs the MCMC simulation, and gathers the results across all processes. 
+        
+        
+        Returns: 
+        upd_info: dict, updated information after running the MCMC simulation
+        sampler: cobaya.sampler.Sampler, the sampler object containing the results of the MCMC run
+        """
         comm = MPI.COMM_WORLD
         self.rank = comm.Get_rank()
 
@@ -192,17 +218,22 @@ class MCMCWorkspace:
         return upd_info, self.sampler
 
     def minimize_run(self):
-        """ Run the MCMC simulation in a minimized mode, to find best fit parameters without full MCMC sampling."""
+        """ Run the MCMC simulation in a minimized mode, to find best fit parameters without full MCMC sampling.
+        
+        Returns:
+        sampler: cobaya.sampler.Sampler, the sampler object containing the results of the minimized MCMC run
+        """
         upd_info, sampler = cb.run(self.info, minimize=True)
 
         return sampler
 
     def save_chain(self, name_root='', mpi=False):
         """
-        Save the chain to a file.
+        Save the chain to a file. The output file will resemble a native cobaya chain file.
         
         Parameters:
         name_root: str, root name for the file
+        mpi: bool, whether to save the file with a rank suffix for MPI runs
         """
         if mpi:
             name = f'{name_root}{self.rank}.txt'
@@ -240,7 +271,7 @@ class MCMCWorkspace:
         Parameters:
         name_root: str, root name for the file
 
-        note: not tested, doubt it works,
+        note: not tested, doubt it works. WILL UPDATE LATER.
         """
 
         import getdist
@@ -262,6 +293,16 @@ class GalaxyDensityTracers:
     """ A class that represents a galaxy density tracer. It contains all the relevant information about the tracer."""
 
     def __init__(self, name, index, z, nz, sacc_file):
+        """ Initializes the GalaxyDensityTracers object with the given parameters.
+
+        Parameters:
+        name: str, name of the tracer
+        index: int, index of the tracer
+        z: numpy array, redshift values for the tracer
+        nz: numpy array, number of data points at each redshift for the tracer
+        sacc_file: str, path to the SACC file containing the data for the tracer
+        """
+
         self.z, self.nz = z, nz
         self.name = f'{name}{index}' 
         self.s = sc.Sacc.load_fits(sacc_file)
@@ -358,6 +399,16 @@ class GalaxyDensityTracerWorkspace:
     """ A class that handles the workspace for galaxy density tracers. It loads the SACC file and defines the tracers based on the provided parameters.
     Works in conjunction with the GalaxyDensityTracers class to provide a more structured way to handle galaxy density tracers in cosmological analyses."""
     def __init__(self, sacc_file, tracer_name_root, cosmology, single_index=None, max_index=None):
+        """ Initializes the GalaxyDensityTracerWorkspace with the given parameters.
+
+        Parameters:
+        sacc_file: str, path to the SACC file containing the data
+        tracer_name_root: str, root name for the tracers
+        cosmology: pyccl.core.Cosmology object, the cosmology to be used in the analysis
+        single_index: int, index of the tracer to be used (optional) - if provided, only this tracer will be defined
+        max_index: int, maximum index of the tracers to be defined (optional) - if provided, tracers from 0 to max_index will be defined
+        """
+
         self.sacc_file = sacc_file
         self.tracer_name_root = tracer_name_root
         self.max_index = max_index
@@ -438,14 +489,21 @@ class GalaxyDensityTracerWorkspace:
         return measured_c_ells
 
     
-    def cut_c_ells(self, tracer):
-        """ Get the C_ell for a specific tracer, cut to a specific range."""
-        tracer.get_cut_data(self.data)
-    
 class CIBIntensityTracers:
     """ A class that represents a CIB intensity tracer. It contains all the relevant information about the tracer, including the redshift, effective source flux, and the kernel for the tracer."""
 
     def __init__(self, tracer_name_root, index, cosmo, snu_z, z_arr, z_min=0., z_max=6.):
+        """ Initializes the CIBIntensityTracers object with the given parameters.
+
+        Parameters:
+        tracer_name_root: str, root name for the tracer
+        index: int, index of the tracer
+        cosmo: pyccl.core.Cosmology object, the cosmology to be used in the analysis
+        snu_z: numpy array, effective source flux for the tracer in units of Jy/Lsun
+        z_arr: numpy array, redshift values to compute the kernel
+        z_min: float, minimum redshift down to which the kernel is defined (default: 0.0)
+        z_max: float, maximum redshift up to which the kernel is defined (default: 6.0)
+        """
         
         self.cosmo = cosmo
         self.snu_z = snu_z
@@ -508,6 +566,8 @@ class CIBIntensityTracers:
         s: sacc.Sacc object
         ell_min: int, minimum ell value
         ell_max: int, maximum ell value
+        tracer_2: str, name of the second tracer (optional)
+        chi_max: float, maximum comoving distance (optional) - if provided, the C_ell will be cut to this distance
         
         Returns:
         c_ell: numpy array, C_ell for this tracer in the specified range
@@ -540,7 +600,17 @@ class CIBIntensityTracers:
 class CIBIntensityTracerWorkspace:
     """ A class that handles the workspace for CIB intensity tracers. It loads the flux fits file and defines the tracers based on the provided parameters."""
 
-    def __init__(self, flux_fits_file, cosmology, tracer_name_root, sacc_file=None, single_index=None, max_index=None):
+    def __init__(self, flux_fits_file, cosmology, tracer_name_root, single_index=None, max_index=None):
+        """ Initializes the CIBIntensityTracerWorkspace with the given parameters.
+
+        Parameters:
+        flux_fits_file: str, path to the flux fits file containing the data
+        cosmology: pyccl.core.Cosmology object, the cosmology to be used in the analysis
+        tracer_name_root: str, root name for the tracers
+        single_index: int, index of the tracer to be used (optional) - if provided, only this tracer will be defined
+        max_index: int, maximum index of the tracers to be defined (optional) - if provided, tracers from 0 to max_index will be defined
+        """
+
         self.data = fits.open(flux_fits_file) #Can i use sacc here?
 
         self.tracer_name_root = tracer_name_root
@@ -556,7 +626,11 @@ class CIBIntensityTracerWorkspace:
         self.single_index = single_index
 
     def define_tracer_objects(self):
-        """ Define the CIB intensity tracer objects based on the provided parameters. Puts them into a list of CIBIntensityTracers objects, which can be used to access the tracers directly."""
+        """ Define the CIB intensity tracer objects based on the provided parameters. Puts them into a list of CIBIntensityTracers objects, which can be used to access the tracers directly.
+        
+        Returns:
+        tracers_obj: list of CIBIntensityTracers objects, each corresponding to a tracer index from 0 to max_index or the single_index if provided.
+        """
 
         self.tracers_obj = []
 
@@ -586,7 +660,11 @@ class CIBIntensityTracerWorkspace:
         return self.tracers_obj
         
     def define_tracer_dict(self):
-        """ Define a dictionary of tracers, where the keys are the tracer names and the values are the corresponding CIBIntensityTracers objects."""
+        """ Define a dictionary of tracers, where the keys are the tracer names and the values are the corresponding CIBIntensityTracers objects.
+        
+        Returns:
+        tracers_dict: dict, keys are tracer names and values are CIBIntensityTracers objects
+        """
 
         self.define_tracer_objects()
 
@@ -598,6 +676,15 @@ class CIBIntensityTracerWorkspace:
 class SaccWorkspace:
     """ A class that handles the SACC file being used in the analysis."""
     def __init__(self, sacc_file=None, tracer_combinations=None, reverse_order=False):
+        """ Initializes the SaccWorkspace with the given parameters.
+
+        Parameters:
+        sacc_file: str, path to the SACC file containing the data
+        tracer_combinations: list of tuples, each tuple containing a pair of tracer names for which the C_ell will be extracted
+        reverse_order: bool, whether to reverse the order of the tracers in the tracer combinations (default: False) - this is useful for cases where the SACC file has tracers in a different order than expected.
+        """
+
+
         self.sacc_file = sacc_file
 
         self.reverse_order = reverse_order
@@ -651,7 +738,7 @@ class SaccWorkspace:
 
         print(self.aliases)
 
-    def select_from_sacc(self, data_type, tracer_combo=None):
+    def select_from_sacc(self, data_type, tracer_combos=None):
         '''
         FROM DR TOM CORNISH, University of Oxford, 2025.
 
@@ -681,10 +768,8 @@ class SaccWorkspace:
 
         s = self.sacc_file
 
-        if tracer_combo is None:
+        if tracer_combos is None:
             tracer_combos = self.tracer_combinations
-        else:
-            tracer_combos = tracer_combo
         
         # Check if input is a string
         if type(s) is str:
@@ -731,6 +816,7 @@ class SaccWorkspace:
 
         Parameters:
         data_type: str, data type for which the covariance matrix is to be extracted
+        tracer_combos: list of tuples, each tuple containing a pair of tracer names for which the covariance matrix is to be extracted
 
         Returns:
         cov_matrix: numpy array, covariance matrix for the specified data type
@@ -746,7 +832,7 @@ class SaccWorkspace:
         Parameters:
         datatype: str, data type for which the covariance matrix is to be obtained and then cut
         mask: numpy array, boolean mask indicating which elements to keep
-        width: int, width of the mask to be applied - refers to the number of 'blocks' that need to be masked
+        tracer_combos: list of tuples, each tuple containing a pair of tracer names for which the covariance matrix is to be extracted (optional) - if not provided, will use the tracer combinations defined in the SaccWorkspace object.
 
         Returns:
         new_cov_matrix: numpy array, cut covariance matrix
@@ -768,11 +854,13 @@ class SaccWorkspace:
         Get the C_ell for a specific tracer combination.
         
         Parameters:
-        tracer1: str, name of the first tracer
-        tracer2: str, name of the second tracer
+        sacc_file: str, path to the SACC file containing the data (optional) - if not provided, will use the SACC file defined in the SaccWorkspace object.
+        tracer_combinations: list of tuples, each tuple containing a pair of tracer names for which the C_ell will be extracted (optional) - if not provided, will use the tracer combinations defined in the SaccWorkspace object.
         
         Returns:
-        measured_c_ells: list of numpy arrays, each containing the measured C_ells for a tracer combination
+        array:
+            ells: list of numpy arrays, each containing the ell values for a tracer combination
+            measured_c_ells: list of numpy arrays, each containing the measured C_ells for a tracer combination
         """
 
         # Check if self.data is set, else use sacc_file function parameter
@@ -850,9 +938,25 @@ class SaccWorkspace:
         return errors
 
 class MaleubreModel():
-    """ Likelihood model for angular power spectra, as described in the paper by Maleubre et al. (TBC)."""
+    """ Likelihood model for angular power spectra, as described in the paper by Maleubre et al. (TBC).
+    
+    Expects the galaxy density tracers to be defined as the leadind tracer in each combination in the sacc file, and the U tracer to be defined as the second tracer in each combination. If this is not the case, one can 
+    flag the reverse_order parameter to True when initializing the SaccWorkspace object, which will reverse the order of the tracers in the tracer combinations. Then pass tracer combinations in in the order of the SACC file, i.e. (U, G) instead of (G, U)."""
 
     def __init__(self, tracer_combos, cosmology, Tracer1Workspace, Tracer2Workspace=None, sacc_workspace=None, logged_N=False, min_ell=100, max_ell=1000, k_max=None):
+        """ Initializes the MaleubreModel with the given parameters.
+        
+        Parameters:
+        tracer_combos: list of tuples, each tuple containing a pair of tracer names for which the C_ell will be extracted
+        cosmology: pyccl.core.Cosmology object, the cosmology to be used in the analysis
+        Tracer1Workspace: GalaxyDensityTracerWorkspace object, workspace containing the first tracer information
+        Tracer2Workspace: GalaxyDensityTracerWorkspace object, workspace containing the second tracer information (optional) - if not provided, only the first tracer will be used and the cross-correlations will not be computed
+        sacc_workspace: SaccWorkspace object, workspace containing the SACC file information (will eventuall be optional) 
+        logged_N: bool, defines if the N_gg and N_gnu passed in to the log_likelihood_function are logged or not (default: False) - if True, the parameters will be transformed from log space before being used in the likelihood function
+        min_ell: int, minimum ell value for the C_ell (default: 100)
+        max_ell: int, maximum ell value for the C_ell (default: 1000)
+        k_max: float, maximum k value for the power spectrum (optional) - if defined, this will override any value for max_ell
+        """
         
         self.Tracer1Workspace = Tracer1Workspace
         self.Tracer2Workspace = Tracer2Workspace
@@ -991,7 +1095,7 @@ class MaleubreModel():
         logL: float, the log-likelihood value for the given parameters
         """
 
-
+        # Checks if the noise parameters need to be transformed from log space
         if self.logged_N:
             N_ggs = np.power(10, N_ggs)
             if N_gnus is not None:
@@ -999,24 +1103,28 @@ class MaleubreModel():
 
         tracers1 = self.Tracer1Workspace.define_tracer_dict() 
 
+        # Checks if the second tracer workspace is defined, and if not, uses the first tracer workspace - for cases where only auto-correlations are being computed.
         try:
             tracers2 = self.Tracer2Workspace.define_tracer_dict()
         except AttributeError:
             tracers2 = tracers1
 
+        # Puts the tracers into a single dictionary, so that they can be accessed by their names.
         tracers = {**tracers1, **tracers2}
 
         theory_c_ells = []
         all_cut_c_ells = []
         masks = []
 
+        # Iterates through the tracer combinations and calculates the C_ell for each combination.
         for i in range(len(self.tracer_combos)):
             
+            # Checks if a maximum k value is defined, and if so, sets the maximum ell value accordingly.
             if self.k_max is not None:
                 self.max_ell = self.get_ell_max(self.tracer_combos[i])
             
+            # AUTO-CORRELATIONS - expects only galaxy density - galaxy density tracers in the tracer combinations.
             if self.tracer_combos[i][0] == self.tracer_combos[i][1]:
-
 
                 self.workspace = self.workspace_dict[self.tracer_combos[i][0][:-1]]
 
@@ -1036,7 +1144,7 @@ class MaleubreModel():
                 all_cut_c_ells.append(cut_c_ells)
                 masks.append(mask)
 
-
+            # CROSS-CORRELATIONS - expects galaxy density - CIB intensity tracers in the tracer combinations. Order can be reversed but one must change the SACC file to have the reverse_order flag set to True.
             elif self.tracer_combos[i][0] != self.tracer_combos[i][1]: # notes cross-correlations
 
                 self.workspace1 = self.workspace_dict[self.tracer_combos[i][0][:-1]] if self.tracer_combos[i][0] in self.workspace_dict else self.Tracer1Workspace
@@ -1060,7 +1168,9 @@ class MaleubreModel():
                 all_cut_c_ells.append(cut_c_ells)
                 masks.append(mask)
            
+        # Calculate the log-likelihood value using the standard formula from the literature.
 
+        # Takes the masks for each tracer combination and uses them to mask the full cov matrix. 
         covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', masks)
 
         icov = np.linalg.inv(covariance)
@@ -1073,6 +1183,24 @@ class MaleubreModel():
         return logL
 
     def get_modelled_data(self, b_gs, N_ggs, A_ggs, N_gnus=None, A_gnus=None, bpsfrs=None, full_ells=False):
+
+        """ Get the modelled data for the given parameters. Can be used for only auto-correlations, cross-correlations, or both auto and cross-correlations.
+        
+        Parameters:
+        b_gs: list of floats, bias parameters for the galaxy tracers
+        N_ggs: list of floats, noise parameters for the tracer auto-correlations
+        A_ggs: list of floats, amplitude parameters for the tracer auto-correlations
+        N_gnus: list of floats, noise parameters for the tracer cross-correlations (optional)
+        A_gnus: list of floats, amplitude parameters for the tracer cross-correlations (optional)
+        bpsfrs: list of floats, parameters for the bias weighted star formation rate desnsity (optional)
+        full_ells: bool, whether to return the full ell values or only the cut ell values (default: False) - if True, will return the full ell values - for extrapolation when plotting, for example.
+        
+        Returns:
+        array:
+            cut_ells_arr: list of numpy arrays, each containing the cut ell values for a tracer combination
+            theory_c_ells: list of numpy arrays, each containing the modelled C_ells for a tracer combination
+            masks: list of numpy arrays, each containing the mask for a tracer combination
+        """
 
         if self.logged_N:
             N_ggs = np.power(10, N_ggs)
@@ -1191,7 +1319,7 @@ class MaleubreModel():
 
 def version():
     """ Return the version of the module."""
-    return "0.0.1b"
+    return "0.0.1 - Stable Release"
 
 
 
