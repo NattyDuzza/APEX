@@ -822,7 +822,7 @@ class SaccWorkspace:
         cov_matrix: numpy array, covariance matrix for the specified data type
         """
 
-        cov_matrix = self.select_from_sacc(data_type, tracer_combo=tracer_combos).covariance.covmat
+        cov_matrix = self.select_from_sacc(data_type, tracer_combos=tracer_combos).covariance.covmat
 
         return cov_matrix
 
@@ -1000,6 +1000,18 @@ class MaleubreModel():
         
         self.k_max = k_max
 
+        tracers1 = self.Tracer1Workspace.define_tracer_dict() 
+
+        # Checks if the second tracer workspace is defined, and if not, uses the first tracer workspace - for cases where only auto-correlations are being computed.
+        try:
+            tracers2 = self.Tracer2Workspace.define_tracer_dict()
+        except AttributeError:
+            tracers2 = tracers1
+
+        # Puts the tracers into a single dictionary, so that they can be accessed by their names.
+        self.tracers = {**tracers1, **tracers2}
+
+
     def kernel_squared_integral(self, tracer, tracerwsp):
 
         """ Calculate the integral of the square of the kernel for a given tracer. Includes a factor of 1/(chi^2), as seen in the literature.
@@ -1042,8 +1054,7 @@ class MaleubreModel():
         #plot kernel
         #plt.plot(chi_values, kernel_square)
 
-        return integral
-    
+        return 1.0
     def kernel_mixed_integral(self, tracer1, tracer2, tracerwsp1, tracerwsp2):
         """ Calculate the integral of the product of the kernels for two tracers. Includes a factor of 1/(chi^2), as seen in the literature.
 
@@ -1077,8 +1088,19 @@ class MaleubreModel():
 
         integral = np.trapezoid(chi_factor*kernel_product, chi_values)
 
-        return integral
+        return 1.0
         
+    def return_tracers(self):
+        tracers1 = self.Tracer1Workspace.define_tracer_dict() 
+
+        try:
+            tracers2 = self.Tracer2Workspace.define_tracer_dict()
+        except AttributeError:
+            tracers2 = tracers1
+
+        tracers = {**tracers1, **tracers2}
+
+        return tracers
 
     def log_likelihood_function(self, b_gs, N_ggs, A_ggs, N_gnus=None, A_gnus=None, bpsfrs=None):
         """ Calculate the log-likelihood function for the given parameters. Can be used for only auto-correlations, cross-correlations, or both auto and cross-correlations.
@@ -1135,7 +1157,7 @@ class MaleubreModel():
                 theory_c_ells.append(
                 b_gs[i%len(b_gs)]**2 * ccl.angular_cl(
                     self.cosmology,
-                    tracers[self.tracer_combos[i][0]],
+                    tracers[self.tracer_combos[i][0]], 
                     tracers[self.tracer_combos[i][1]],
                     ell=cut_ells,
                     p_of_k_a=self.pk2d_mm) + N_ggs[i%len(N_ggs)]*self.kernel_squared_integral(self.tracer_combos[i][0], self.workspace) + ccl.angular_cl(self.cosmology, tracers[self.tracer_combos[i][0]], tracers[self.tracer_combos[i][0]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%len(A_ggs)]
@@ -1145,7 +1167,7 @@ class MaleubreModel():
                 masks.append(mask)
 
             # CROSS-CORRELATIONS - expects galaxy density - CIB intensity tracers in the tracer combinations. Order can be reversed but one must change the SACC file to have the reverse_order flag set to True.
-            elif self.tracer_combos[i][0] != self.tracer_combos[i][1]: # notes cross-correlations
+            elif self.tracer_combos[i][0] != self.tracer_combos[i][1]:
 
                 self.workspace1 = self.workspace_dict[self.tracer_combos[i][0][:-1]] if self.tracer_combos[i][0] in self.workspace_dict else self.Tracer1Workspace
                 self.workspace2 = self.workspace_dict[self.tracer_combos[i][1][:-1]] if self.tracer_combos[i][1] in self.workspace_dict else self.Tracer2Workspace
@@ -1181,6 +1203,98 @@ class MaleubreModel():
 
         
         return logL
+    
+    def lightweight_log_likelihood_function(self, b_gs, N_ggs, A_ggs, N_gnus=None, A_gnus=None, bpsfrs=None):
+        """ Calculate the log-likelihood function for the given parameters. Can be used for only auto-correlations, cross-correlations, or both auto and cross-correlations.
+
+        Parameters:
+        b_gs: list of floats, bias parameters for the galaxy tracers
+        N_ggs: list of floats, noise parameters for the tracer auto-correlations
+        A_ggs: list of floats, amplitude parameters for the tracer auto-correlations
+        N_gnus: list of floats, noise parameters for the tracer cross-correlations (optional)
+        A_gnus: list of floats, amplitude parameters for the tracer cross-correlations (optional)
+        bpsfrs: list of floats, parameters for the bias weighted star formation rate desnsity (optional)
+
+        Returns:
+        logL: float, the log-likelihood value for the given parameters
+        """
+
+        # Checks if the noise parameters need to be transformed from log space
+        if self.logged_N:
+            N_ggs = np.power(10, N_ggs)
+            if N_gnus is not None:
+                N_gnus = np.power(10, N_gnus)
+
+        theory_c_ells = []
+        all_cut_c_ells = []
+        masks = []
+
+        # Iterates through the tracer combinations and calculates the C_ell for each combination.
+        for i in range(len(self.tracer_combos)):
+            
+            # Checks if a maximum k value is defined, and if so, sets the maximum ell value accordingly.
+            if self.k_max is not None:
+                self.max_ell = self.get_ell_max(self.tracer_combos[i])
+            
+            # AUTO-CORRELATIONS - expects only galaxy density - galaxy density tracers in the tracer combinations.
+            if self.tracer_combos[i][0] == self.tracer_combos[i][1]:
+
+                self.workspace = self.workspace_dict[self.tracer_combos[i][0][:-1]]
+
+                mod_val = len(self.workspace.tracers_obj)
+                
+                cut_ells, cut_c_ells, mask = self.workspace.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace, ell_min=self.min_ell, ell_max=self.max_ell) # get the cut data for the auto-correlation
+
+                theory_c_ells.append(
+                b_gs[i%len(b_gs)]**2 * ccl.angular_cl(
+                    self.cosmology,
+                    self.tracers[self.tracer_combos[i][0]], 
+                    self.tracers[self.tracer_combos[i][1]],
+                    ell=cut_ells,
+                    p_of_k_a=self.pk2d_mm) + N_ggs[i%len(N_ggs)] + ccl.angular_cl(self.cosmology, self.tracers[self.tracer_combos[i][0]], self.tracers[self.tracer_combos[i][0]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%len(A_ggs)]
+                )
+
+                all_cut_c_ells.append(cut_c_ells)
+                masks.append(mask)
+
+            # CROSS-CORRELATIONS - expects galaxy density - CIB intensity tracers in the tracer combinations. Order can be reversed but one must change the SACC file to have the reverse_order flag set to True.
+            elif self.tracer_combos[i][0] != self.tracer_combos[i][1]:
+
+                self.workspace1 = self.workspace_dict[self.tracer_combos[i][0][:-1]] if self.tracer_combos[i][0] in self.workspace_dict else self.Tracer1Workspace
+                self.workspace2 = self.workspace_dict[self.tracer_combos[i][1][:-1]] if self.tracer_combos[i][1] in self.workspace_dict else self.Tracer2Workspace
+
+                mod_val = len(self.workspace1.tracers_obj)
+
+                cut_ells, cut_c_ells, mask = self.workspace1.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace, tracer_2=self.tracer_combos[i][1], ell_min=self.min_ell, ell_max=self.max_ell) # get the cut data for the cross-correlation
+
+                theory_c_ells.append(
+                b_gs[i%len(b_gs)] * bpsfrs[i%len(bpsfrs)] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
+                    self.cosmology,
+                    self.tracers[self.tracer_combos[i][0]],
+                    self.tracers[self.tracer_combos[i][1]],
+                    ell=cut_ells,
+                    p_of_k_a=self.pk2d_mm) 
+                    + N_gnus[i%len(N_gnus)]
+                    + ccl.angular_cl(self.cosmology, self.tracers[self.tracer_combos[i][0]], self.tracers[self.tracer_combos[i][1]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%len(A_gnus)]
+                )
+
+                all_cut_c_ells.append(cut_c_ells)
+                masks.append(mask)
+           
+        # Calculate the log-likelihood value using the standard formula from the literature.
+
+        # Takes the masks for each tracer combination and uses them to mask the full cov matrix. 
+        covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', masks)
+
+        icov = np.linalg.inv(covariance)
+
+        diff = np.concatenate(all_cut_c_ells) - np.concatenate(theory_c_ells)
+        
+        logL = -0.5 *np.dot(diff, np.dot(icov, diff))
+
+        
+        return logL
+    
 
     def get_modelled_data(self, b_gs, N_ggs, A_ggs, N_gnus=None, A_gnus=None, bpsfrs=None, full_ells=False):
 
