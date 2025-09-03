@@ -970,7 +970,7 @@ class MaleubreModel():
     Expects the galaxy density tracers to be defined as the leadind tracer in each combination in the sacc file, and the U tracer to be defined as the second tracer in each combination. If this is not the case, one can 
     flag the reverse_order parameter to True when initializing the SaccWorkspace object, which will reverse the order of the tracers in the tracer combinations. Then pass tracer combinations in in the order of the SACC file, i.e. (U, G) instead of (G, U)."""
 
-    def __init__(self, tracer_combos, cosmology, Tracer1Workspace, Tracer2Workspace=None, sacc_workspace=None, logged_N=False, min_ell=100, max_ell=1000, k_max=None):
+    def __init__(self, tracer_combos, cosmology, Tracer1Workspace, Tracer2Workspace=None, sacc_workspace=None, logged_N=False, min_ell=100, max_ell=1000, k_max=None, beam_window=None):
         """ Initializes the MaleubreModel with the given parameters.
         
         Parameters:
@@ -996,6 +996,8 @@ class MaleubreModel():
         self.sacc_workspace = sacc_workspace if sacc_workspace is not None else None
 
         self.data = sacc_workspace.data if sacc_workspace is not None else None
+
+        self.beam_window = beam_window
 
         self.min_ell = min_ell
         self.max_ell = max_ell
@@ -1295,7 +1297,10 @@ class MaleubreModel():
 
                 cut_ells, cut_c_ells, mask = self.workspace1.tracers_obj[i%mod_val].get_cut_data(self.sacc_workspace, tracer_2=self.tracer_combos[i][1], ell_min=self.min_ell, ell_max=self.max_ell) # get the cut data for the cross-correlation
 
-                beam = self.sacc_workspace.get_cut_beam_window(self.tracer_combos[i], cut_ells)
+                if self.beam_window:
+                    beam = self.sacc_workspace.get_cut_beam_window(self.tracer_combos[i], cut_ells)
+                else:
+                    beam = 1.0
 
                 theory_c_ells.append(
                 (b_gs[i%len(b_gs)] * bpsfrs[i%len(bpsfrs)] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
@@ -1305,7 +1310,7 @@ class MaleubreModel():
                     ell=cut_ells,
                     p_of_k_a=self.pk2d_mm) 
                     + N_gnus[i%len(N_gnus)]
-                    + ccl.angular_cl(self.cosmology, self.tracers[self.tracer_combos[i][0]], self.tracers[self.tracer_combos[i][1]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%len(A_gnus)])
+                    + ccl.angular_cl(self.cosmology, self.tracers[self.tracer_combos[i][0]], self.tracers[self.tracer_combos[i][1]], ell=cut_ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%len(A_gnus)]) * beam
                 ) 
 
                 all_cut_c_ells.append(cut_c_ells)
@@ -1424,7 +1429,10 @@ class MaleubreModel():
                 if full_ells == False:
                     ells = cut_ells
 
-                beam = self.sacc_workspace.get_cut_beam_window(tracer_combo, ells)
+                if self.beam_window:
+                    beam = self.sacc_workspace.get_cut_beam_window(tracer_combo, ells)
+                else:
+                    beam = 1.0
 
                 theory_c_ells.append(
                 (b_gs[i%len(b_gs)] * bpsfrs[i%len(bpsfrs)] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
@@ -1443,19 +1451,19 @@ class MaleubreModel():
 
         return [cut_ells_arr, theory_c_ells, masks]
 
-    def get_ell_max(self, tracers):
+    def get_ell_max(self, tracer_combo):
 
         if self.sacc_workspace.reverse_order:
-            tracer = tracers[1]
+            tracer = tracer_combo[1]
         else:
-            tracer = tracers[0]
+            tracer = tracer_combo[0]
         
         z = self.data.get_tracer(tracer).z
         nz = self.data.get_tracer(tracer).nz
 
         weighted_z = np.average(z, weights=nz)
         
-        a_values = np.linspace(1/(1+weighted_z*1.2), 1, 100)
+        a_values = np.linspace(1/(1+weighted_z), 1, 100)
 
         chi_values = ccl.comoving_radial_distance(self.cosmology, a_values)[::-1]
         
