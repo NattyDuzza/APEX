@@ -9,7 +9,7 @@ class Plots:
 
         self.sacc_workspace = sacc_workspace
 
-    def create_grid_plot(self, subplot_titles, subplot_tracer_combos, measured_data, measured_data_err, modelled_data, residuals=False, cut_positions=(None, None), full_ells=False, variable_cuts=False):
+    def create_grid_plot(self, subplot_titles, subplot_tracer_combos, measured_data, measured_data_err, modelled_data, residuals=False, cut_positions=(None, None), full_ells=False, variable_cuts=False, cut_pos=None):
         """Create a grid plot with specified subplot titles and tracer combinations.
         
         Parameters:
@@ -38,9 +38,14 @@ class Plots:
                 ax_main.set_title(subplot_titles[col], fontsize=16, pad=20)
 
             if variable_cuts:
-                cut_positions[1] = modelled_data[0][i].max()
 
-                cut_positions[0] = modelled_data[0][i].min()
+                if cut_pos is None:
+                    cut_positions[1] = modelled_data[0][i].max()
+
+                    cut_positions[0] = modelled_data[0][i].min()
+                else:
+                    cut_positions[0] = 100
+                    cut_positions[1] = cut_pos[i]
 
             print(max(measured_data[0][i]), cut_positions[1])
 
