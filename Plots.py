@@ -21,11 +21,10 @@ class Plots:
 
         outer_grid = fig.add_gridspec(len(subplot_tracer_combos), len(subplot_titles), hspace=0.3, wspace=0.1)
 
+        masks = modelled_data[2]
         
 
         for i in range(len(subplot_tracer_combos)):
-
-            mask = modelled_data[2][i]
 
             row = i % 4
             col = i // 4
@@ -67,10 +66,10 @@ class Plots:
 
             # Plot modelled data in modelled range
             if full_ells:
-                ax_main.plot(modelled_data[0][i], modelled_data[1][i][mask], zorder=10, label='Modelled', color='C1')
+                ax_main.plot(modelled_data[0][i], modelled_data[1][i][masks[i]], zorder=10, label='Modelled', color='C1')
 
                 # Plot modelled data outside of modelled range with dots
-                ax_main.plot(measured_data[0][i][~mask], modelled_data[1][i][~mask], 'k.', zorder=0, markersize=2,  color='C1')
+                ax_main.plot(measured_data[0][i][~masks[i]], modelled_data[1][i][~masks[i]], 'k.', zorder=0, markersize=2,  color='C1')
             
             else:
                 ax_main.plot(modelled_data[0][i], modelled_data[1][i], zorder=10, label='Modelled', color='C1')
@@ -111,11 +110,11 @@ class Plots:
                     ax_res.set_xlabel(r'$\ell$', fontsize=15)
 
                 # Calculate residuals
-                errs_res = measured_data_err[i][mask]
+                errs_res = measured_data_err[i][masks[i]]
                 errs_res[errs_res == 0] = 1e-12  # Avoid division by zero
 
-                residual_values = (measured_data[1][i][mask] - modelled_data[1][i][mask]) / measured_data_err[i][mask]
-                residual_ells = measured_data[0][i][mask]
+                residual_values = (measured_data[1][i][masks[i]] - modelled_data[1][i][masks[i]]) / measured_data_err[i][masks[i]]
+                residual_ells = measured_data[0][i][masks[i]]
 
                 ax_res.axhline(0, color='k', linestyle='--')
                 ax_res.errorbar(residual_ells, residual_values, yerr=1, fmt='k.')

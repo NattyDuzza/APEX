@@ -115,28 +115,28 @@ for j in range(4):
 
     plt.plot(k, bpsfrs, marker='o', linestyle='-', label=f'Redshift bin {j}')
     '''
-chosen_tracer = 'DESI_LRG__'
+chosen_tracer = 'hsc_zbin'
 
 tracer_combos = [(f'{chosen_tracer}0', f'{chosen_tracer}0'),
                  (f'{chosen_tracer}1', f'{chosen_tracer}1'),
                  (f'{chosen_tracer}2', f'{chosen_tracer}2'),
                  (f'{chosen_tracer}3', f'{chosen_tracer}3'),
 
-                 ('CIBLenz__3', f'{chosen_tracer}0'),
-                 ('CIBLenz__3', f'{chosen_tracer}1'),
-                 ('CIBLenz__3', f'{chosen_tracer}2'),
-                 ('CIBLenz__3', f'{chosen_tracer}3')
+                 (f'{chosen_tracer}0', 'CIBLenz__2'),
+                 (f'{chosen_tracer}1', 'CIBLenz__2'),
+                 (f'{chosen_tracer}2', 'CIBLenz__2'),
+                 (f'{chosen_tracer}3', 'CIBLenz__2')
                  ]
 
 gdwsp = ap.GalaxyDensityTracerWorkspace(
-        sacc_file="../CIB-Project/cls_desi_lrgs_x_cib.fits",
+        sacc_file="../CIB-Project/NEW-hsc_x_cib(857).fits",
         tracer_name_root=chosen_tracer,
         max_index=3,
         cosmology=cosmo)
 
-s = ap.SaccWorkspace('../CIB-Project/cls_desi_lrgs_x_cib.fits', tracer_combinations=tracer_combos, reverse_order=True)
+s = ap.SaccWorkspace('../CIB-Project/NEW-hsc_x_cib(857).fits', tracer_combinations=tracer_combos, reverse_order=True)
 
-s.define_alias('CIBLenz__857', 'CIBLenz__3')
+s.define_alias('CIBLenz__857', 'CIBLenz__2')
 
 bpsfrs0 = []
 bpsfrs1 = []
@@ -158,7 +158,7 @@ for i in k:
         k_max = i,
     )
     mcmc = ap.MCMCWorkspace(
-        sacc_file='../CIB-Project/cls_desi_lrgs_x_cib.fits',
+        sacc_file='../CIB-Project/NEW-hsc_x_cib(857).fits',
         model=mmodel,
         likelihood_function='log_likelihood_function')
     
