@@ -26,9 +26,8 @@ class Plots:
 
         for i in range(len(subplot_tracer_combos)):
 
-            row = i % 4
-            col = i // 4
-            
+            row = i % (len(subplot_tracer_combos) / 2)
+            col = i // (len(subplot_tracer_combos) / 2)
             
             inner_grid = outer_grid[row, col].subgridspec(2, 1, height_ratios=[4, 1], hspace=0)
             
