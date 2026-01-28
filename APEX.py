@@ -13,6 +13,7 @@ import healpy as hp
 #extension imports
 from Plots import Plots
 from InputHandler import estimate_error
+from InputHandler import reformat_chain_file
 
 class MCMCWorkspace:
     """
@@ -228,7 +229,7 @@ class MCMCWorkspace:
 
         return sampler
 
-    def save_chain(self, name_root='', mpi=False):
+    def save_chain(self, name_root='', mpi=False, chunk_size=None, sep_files=False):
         """
         Save the chain to a file. The output file will resemble a native cobaya chain file.
         
@@ -236,19 +237,77 @@ class MCMCWorkspace:
         name_root: str, root name for the file
         mpi: bool, whether to save the file with a rank suffix for MPI runs
         """
-        if mpi:
-            name = f'{name_root}{self.rank}.txt'
-        else:
-            name = f'{name_root}.txt'
 
-        if self.sampler is not None:
+        from pathlib import Path
+
+        if chunk_size == None:
+        
+            if mpi:
+                name = f'{name_root}{self.rank}.txt'
+            else:
+                name = f'{name_root}.txt'
+
+            if self.sampler is not None:
+
+                chain = self.sampler.samples().data
+
+                df = pd.DataFrame(chain)
+                formatted_chain = df.to_string(index=False, header=True)
+                
+                with open(name, 'w') as f:
+                    f.write(formatted_chain)
+        
+        else:
+            if mpi:
+                folder_name = f'{name_root}_rank{self.rank}_chunks'
+            else:
+                folder_name = f'{name_root}_chunks'
+
+            folder_path = Path(folder_name)
+            folder_path.mkdir(parents=True, exist_ok=True)
+
+            test_file = folder_path / 'test0.txt'
+
+            if self.sampler is not None:
+
+                number_of_chunks = int(np.ceil(len(self.sampler.samples().data) / chunk_size))
+                # Use chunking to reduce memory usage
+                for chunk in range(number_of_chunks):
+                    
+                    start = chunk * chunk_size
+                    end = min((chunk + 1) * chunk_size, len(self.sampler.samples().data))
+                    df = pd.DataFrame(self.sampler.samples().data[start:end])
+                    formatted_chain = df.to_string(index=False, header=True)
+
+                    if sep_files:
+
+                        file_path = folder_path / f'chain_chunk{chunk}.txt'
+                        file_path.write_text(formatted_chain)
+
+                    else:
+                    #chain with header only for first chunk
+                        if chunk == 0:
+                            test_chain = formatted_chain.split('\n')[0]  #header line
+                        else:
+                            test_chain = formatted_chain.split('\n')[1:]  #data lines
+                            test_chain = '\n'.join(test_chain)
+                    
+                    #add to end of test file
+                    with open(test_file, 'a') as f:
+                        f.write(test_chain + '\n')
+                    
+                    
+                    
+        
+            """
             chain = self.sampler.samples().data
 
-            df = pd.DataFrame(chain)
+            #df = pd.DataFrame(chain)
             formatted_chain = df.to_string(index=False, header=True)
             
             with open(name, 'w') as f:
                 f.write(formatted_chain)
+            """
 
     def corner_plot(self, params_to_plot):
         """ Create a corner plot for the given parameters.
