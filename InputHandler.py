@@ -41,3 +41,25 @@ def estimate_error(chain_outputs, column_name, burn_in = 0.3, array=False, max_i
 
     return std
 
+def reformat_chain_file(input_file, output_path):
+    """Reformat a chain file to have proper headers and alignment.
+    Parameters:
+    ----------
+    input_file : str
+        Path to the input chain file.
+    output_path : str
+        Path to save the reformatted chain file.
+    file_type : str, optional
+        Type of the chain output file (default is 'txt').
+    
+    Returns:
+    -------
+    None
+    """
+
+    df = pd.read_csv(input_file, sep='\s+')
+    formatted_chain = df.to_string(index=False, header=True)
+
+    with open(output_path, 'w') as f:
+        f.write(formatted_chain + '\n')
+
