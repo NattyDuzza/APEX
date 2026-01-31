@@ -229,7 +229,7 @@ class MCMCWorkspace:
 
         return sampler
 
-    def save_chain(self, name_root='', mpi=False, chunk_size=None, sep_files=False):
+    def save_chain(self, name_root='', mpi=False, chunk_size=None, sep_files=False, updated_info=None):
         """
         Save the chain to a file. The output file will resemble a native cobaya chain file.
         
@@ -239,6 +239,19 @@ class MCMCWorkspace:
         """
 
         from pathlib import Path
+
+        # save updated info as yaml
+        
+        if updated_info is not None:
+            import yaml
+
+            info_name = f'{name_root}_updated.yaml'
+
+            with open(info_name, 'w') as f:
+                yaml.dump(updated_info, f)
+
+    
+        
 
         if chunk_size == None:
         
@@ -251,22 +264,17 @@ class MCMCWorkspace:
 
                 chain = self.sampler.samples().data
 
-                df = pd.DataFrame(chain)
-                formatted_chain = df.to_string(index=False, header=True)
+                #df = pd.DataFrame(chain)
+                formatted_chain = chain.to_string(index=False, header=True)
+
+                lines = formatted_chain.split('\n')
+                lines[0] = '# ' + lines[0]
+                formatted_chain = '\n'.join(lines)
                 
                 with open(name, 'w') as f:
                     f.write(formatted_chain)
         
         else:
-            if mpi:
-                folder_name = f'{name_root}_rank{self.rank}_chunks'
-            else:
-                folder_name = f'{name_root}_chunks'
-
-            folder_path = Path(folder_name)
-            folder_path.mkdir(parents=True, exist_ok=True)
-
-            test_file = folder_path / 'test0.txt'
 
             if self.sampler is not None:
 
@@ -277,24 +285,27 @@ class MCMCWorkspace:
                     start = chunk * chunk_size
                     end = min((chunk + 1) * chunk_size, len(self.sampler.samples().data))
                     df = pd.DataFrame(self.sampler.samples().data[start:end])
-                    formatted_chain = df.to_string(index=False, header=True)
+                    formatted_chain = df.to_string(index=False, header=(chunk==0))
+
+                    if chunk == 0:
+                        lines = formatted_chain.split('\n')
+                        lines[0] = '# ' + lines[0]
+                        formatted_chain = '\n'.join(lines)
 
                     if sep_files:
+                        folder_path = Path(f'{name_root}_chunks_{self.rank}' if mpi else f'{name_root}_chunks')
 
-                        file_path = folder_path / f'chain_chunk{chunk}.txt'
+
+                        file_path = folder_path / f'{name_root}{chunk}.txt'
                         file_path.write_text(formatted_chain)
-
-                    else:
-                    #chain with header only for first chunk
-                        if chunk == 0:
-                            test_chain = formatted_chain.split('\n')[0]  #header line
-                        else:
-                            test_chain = formatted_chain.split('\n')[1:]  #data lines
-                            test_chain = '\n'.join(test_chain)
                     
-                    #add to end of test file
-                    with open(test_file, 'a') as f:
-                        f.write(test_chain + '\n')
+                    #name of file
+                    file = (f'{name_root}{self.rank}.txt' if mpi else f'{name_root}.txt')
+
+                    #append chunk to file
+                    with open(file, 'a') as f:
+                        f.write(formatted_chain+'\n')
+                    
                     
                     
                     
@@ -308,6 +319,28 @@ class MCMCWorkspace:
             with open(name, 'w') as f:
                 f.write(formatted_chain)
             """
+
+    def create_paramnames_file(self, name_root, index=''):
+        """ Create a parameter names file for the chain, by reading the chain file and extracting the parameter names from the header."""
+
+        if index != '':
+            chain_file = f'{name_root}{index}.txt'
+            paramnames_file = f'{name_root}paramnames'
+        else:
+            chain_file = f'{name_root}.txt'
+            paramnames_file = f'{name_root}.paramnames'
+
+        with open(chain_file, 'r') as f:
+            header = f.readline().strip()
+
+        #array of parameter names, stip the leading '# ' and remove the first two columns
+
+        param_names = header.lstrip('# ').split()[2:]
+
+        with open(paramnames_file, 'w') as f:
+            for name in param_names:
+                f.write(f'{name}\n')
+
 
     def corner_plot(self, params_to_plot):
         """ Create a corner plot for the given parameters.

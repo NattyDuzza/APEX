@@ -13,6 +13,7 @@ import healpy as hp
 #extension imports
 from Plots import Plots
 from InputHandler import estimate_error
+from InputHandler import reformat_chain_file
 
 class MCMCWorkspace:
     """
@@ -228,7 +229,7 @@ class MCMCWorkspace:
 
         return sampler
 
-    def save_chain(self, name_root='', mpi=False):
+    def save_chain(self, name_root='', mpi=False, chunk_size=None, sep_files=False, updated_info=None):
         """
         Save the chain to a file. The output file will resemble a native cobaya chain file.
         
@@ -236,19 +237,110 @@ class MCMCWorkspace:
         name_root: str, root name for the file
         mpi: bool, whether to save the file with a rank suffix for MPI runs
         """
-        if mpi:
-            name = f'{name_root}{self.rank}.txt'
-        else:
-            name = f'{name_root}.txt'
 
-        if self.sampler is not None:
+        from pathlib import Path
+
+        # save updated info as yaml
+        
+        if updated_info is not None:
+            import yaml
+
+            info_name = f'{name_root}_updated.yaml'
+
+            with open(info_name, 'w') as f:
+                yaml.dump(updated_info, f)
+
+    
+        
+
+        if chunk_size == None:
+        
+            if mpi:
+                name = f'{name_root}{self.rank}.txt'
+            else:
+                name = f'{name_root}.txt'
+
+            if self.sampler is not None:
+
+                chain = self.sampler.samples().data
+
+                #df = pd.DataFrame(chain)
+                formatted_chain = chain.to_string(index=False, header=True)
+
+                lines = formatted_chain.split('\n')
+                lines[0] = '# ' + lines[0]
+                formatted_chain = '\n'.join(lines)
+                
+                with open(name, 'w') as f:
+                    f.write(formatted_chain)
+        
+        else:
+
+            if self.sampler is not None:
+
+                number_of_chunks = int(np.ceil(len(self.sampler.samples().data) / chunk_size))
+                # Use chunking to reduce memory usage
+                for chunk in range(number_of_chunks):
+                    
+                    start = chunk * chunk_size
+                    end = min((chunk + 1) * chunk_size, len(self.sampler.samples().data))
+                    df = pd.DataFrame(self.sampler.samples().data[start:end])
+                    formatted_chain = df.to_string(index=False, header=(chunk==0))
+
+                    if chunk == 0:
+                        lines = formatted_chain.split('\n')
+                        lines[0] = '# ' + lines[0]
+                        formatted_chain = '\n'.join(lines)
+
+                    if sep_files:
+                        folder_path = Path(f'{name_root}_chunks_{self.rank}' if mpi else f'{name_root}_chunks')
+
+
+                        file_path = folder_path / f'{name_root}{chunk}.txt'
+                        file_path.write_text(formatted_chain)
+                    
+                    #name of file
+                    file = (f'{name_root}{self.rank}.txt' if mpi else f'{name_root}.txt')
+
+                    #append chunk to file
+                    with open(file, 'a') as f:
+                        f.write(formatted_chain+'\n')
+                    
+                    
+                    
+                    
+        
+            """
             chain = self.sampler.samples().data
 
-            df = pd.DataFrame(chain)
+            #df = pd.DataFrame(chain)
             formatted_chain = df.to_string(index=False, header=True)
             
             with open(name, 'w') as f:
                 f.write(formatted_chain)
+            """
+
+    def create_paramnames_file(self, name_root, index=''):
+        """ Create a parameter names file for the chain, by reading the chain file and extracting the parameter names from the header."""
+
+        if index != '':
+            chain_file = f'{name_root}{index}.txt'
+            paramnames_file = f'{name_root}paramnames'
+        else:
+            chain_file = f'{name_root}.txt'
+            paramnames_file = f'{name_root}.paramnames'
+
+        with open(chain_file, 'r') as f:
+            header = f.readline().strip()
+
+        #array of parameter names, stip the leading '# ' and remove the first two columns
+
+        param_names = header.lstrip('# ').split()[2:]
+
+        with open(paramnames_file, 'w') as f:
+            for name in param_names:
+                f.write(f'{name}\n')
+
 
     def corner_plot(self, params_to_plot):
         """ Create a corner plot for the given parameters.
@@ -1687,7 +1779,7 @@ class MaleubreModel():
 
 def version():
     """ Return the version of the module."""
-    return "0.0.2 - Stable Release"
+    return "0.0.4 - Stable Release - 31/01/25"
 
 
 
