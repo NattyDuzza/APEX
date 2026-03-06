@@ -243,20 +243,22 @@ class MCMCWorkspace:
         # save updated info as yaml
         
         if updated_info is not None:
-            import yaml
+            if self.rank == 0:
+                from cobaya.yaml import yaml_dump_file as dump
+                import yaml
 
-            info_name = f'{name_root}_updated.yaml'
+                info_name = f'{name_root}_updated.yaml'
 
-            with open(info_name, 'w') as f:
-                yaml.dump(updated_info, f)
-
-    
-        
-
+                #check if file exists
+                if Path(info_name).exists():
+                    print(f"File already created")
+                else:
+                    dump(info_name, updated_info)
+            
         if chunk_size == None:
         
             if mpi:
-                name = f'{name_root}{self.rank}.txt'
+                name = f'{name_root}.{self.rank}.txt'
             else:
                 name = f'{name_root}.txt'
 
@@ -293,24 +295,22 @@ class MCMCWorkspace:
                         formatted_chain = '\n'.join(lines)
 
                     if sep_files:
-                        folder_path = Path(f'{name_root}_chunks_{self.rank}' if mpi else f'{name_root}_chunks')
+                        folder_path = Path(f'{name_root}_chunks{self.rank}' if mpi else f'{name_root}_chunks')
 
 
                         file_path = folder_path / f'{name_root}{chunk}.txt'
                         file_path.write_text(formatted_chain)
                     
                     #name of file
-                    file = (f'{name_root}{self.rank}.txt' if mpi else f'{name_root}.txt')
+                    file = (f'{name_root}.{self.rank}.txt' if mpi else f'{name_root}.txt')
 
                     #append chunk to file
                     with open(file, 'a') as f:
                         f.write(formatted_chain+'\n')
                     
-                    
-                    
-                    
+                
         
-            """
+            """ Legacy code, led to memory issues for large chains, hence the chunking implementation above. Kept here for reference.
             chain = self.sampler.samples().data
 
             #df = pd.DataFrame(chain)
@@ -320,25 +320,35 @@ class MCMCWorkspace:
                 f.write(formatted_chain)
             """
 
-    def create_paramnames_file(self, name_root, index=''):
-        """ Create a parameter names file for the chain, by reading the chain file and extracting the parameter names from the header."""
+    def create_paramnames_file(self, name_root, param_names=None, readFromFile=False, index=''):
+        """ Create parameter names files for the chain, based on the provided parameters. If readFromFile is True, the parameter names will be read from the chain file header instead of the provided parameters list."""
 
         if index != '':
-            chain_file = f'{name_root}{index}.txt'
-            paramnames_file = f'{name_root}paramnames'
+            chain_file = f'{name_root}.{index}.txt'
+            paramnames_file = f'{name_root}.paramnames'
         else:
             chain_file = f'{name_root}.txt'
             paramnames_file = f'{name_root}.paramnames'
 
-        with open(chain_file, 'r') as f:
-            header = f.readline().strip()
+        if readFromFile:
+            with open(chain_file, 'r') as f:
+                header = f.readline().strip()
 
-        #array of parameter names, stip the leading '# ' and remove the first two columns
+            #array of parameter names, stip the leading '# ' and remove the first two columns
 
-        param_names = header.lstrip('# ').split()[2:]
+            full_list = header.lstrip('# ').split()[2:]
+
+        else:
+            default_header_additions = ['minuslogprior', 'minuslogprior__0', 'chi2', 'chis2__modelclass'] #inspired by Cobaya default heading labels
+           
+            
+            if param_names is None:
+                print("Please provide a list of parameter names to create the paramnames file, or set readFromFile to True to read the parameter names from the chain file header.")
+            else:
+                full_list = param_names + default_header_additions
 
         with open(paramnames_file, 'w') as f:
-            for name in param_names:
+            for name in full_list:
                 f.write(f'{name}\n')
 
 
@@ -1779,7 +1789,7 @@ class MaleubreModel():
 
 def version():
     """ Return the version of the module."""
-    return "0.0.2 - Stable Release"
+    return "0.0.3 - Stable Release"
 
 
 
