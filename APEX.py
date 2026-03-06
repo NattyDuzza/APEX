@@ -8,10 +8,12 @@ from mpi4py import MPI
 from cobaya.log import LoggedError
 import pandas as pd
 from astropy.io import fits
+import healpy as hp
 
 #extension imports
 from Plots import Plots
 from InputHandler import estimate_error
+from InputHandler import reformat_chain_file
 
 class MCMCWorkspace:
     """
@@ -227,7 +229,7 @@ class MCMCWorkspace:
 
         return sampler
 
-    def save_chain(self, name_root='', mpi=False):
+    def save_chain(self, name_root='', mpi=False, chunk_size=None, sep_files=False, updated_info=None):
         """
         Save the chain to a file. The output file will resemble a native cobaya chain file.
         
@@ -235,19 +237,120 @@ class MCMCWorkspace:
         name_root: str, root name for the file
         mpi: bool, whether to save the file with a rank suffix for MPI runs
         """
-        if mpi:
-            name = f'{name_root}{self.rank}.txt'
-        else:
-            name = f'{name_root}.txt'
 
-        if self.sampler is not None:
+        from pathlib import Path
+
+        # save updated info as yaml
+        
+        if updated_info is not None:
+            if self.rank == 0:
+                from cobaya.yaml import yaml_dump_file as dump
+                import yaml
+
+                info_name = f'{name_root}_updated.yaml'
+
+                #check if file exists
+                if Path(info_name).exists():
+                    print(f"File already created")
+                else:
+                    dump(info_name, updated_info)
+            
+        if chunk_size == None:
+        
+            if mpi:
+                name = f'{name_root}.{self.rank}.txt'
+            else:
+                name = f'{name_root}.txt'
+
+            if self.sampler is not None:
+
+                chain = self.sampler.samples().data
+
+                #df = pd.DataFrame(chain)
+                formatted_chain = chain.to_string(index=False, header=True)
+
+                lines = formatted_chain.split('\n')
+                lines[0] = '# ' + lines[0]
+                formatted_chain = '\n'.join(lines)
+                
+                with open(name, 'w') as f:
+                    f.write(formatted_chain)
+        
+        else:
+
+            if self.sampler is not None:
+
+                number_of_chunks = int(np.ceil(len(self.sampler.samples().data) / chunk_size))
+                # Use chunking to reduce memory usage
+                for chunk in range(number_of_chunks):
+                    
+                    start = chunk * chunk_size
+                    end = min((chunk + 1) * chunk_size, len(self.sampler.samples().data))
+                    df = pd.DataFrame(self.sampler.samples().data[start:end])
+                    formatted_chain = df.to_string(index=False, header=(chunk==0))
+
+                    if chunk == 0:
+                        lines = formatted_chain.split('\n')
+                        lines[0] = '# ' + lines[0]
+                        formatted_chain = '\n'.join(lines)
+
+                    if sep_files:
+                        folder_path = Path(f'{name_root}_chunks{self.rank}' if mpi else f'{name_root}_chunks')
+
+
+                        file_path = folder_path / f'{name_root}{chunk}.txt'
+                        file_path.write_text(formatted_chain)
+                    
+                    #name of file
+                    file = (f'{name_root}.{self.rank}.txt' if mpi else f'{name_root}.txt')
+
+                    #append chunk to file
+                    with open(file, 'a') as f:
+                        f.write(formatted_chain+'\n')
+                    
+                
+        
+            """ Legacy code, led to memory issues for large chains, hence the chunking implementation above. Kept here for reference.
             chain = self.sampler.samples().data
 
-            df = pd.DataFrame(chain)
+            #df = pd.DataFrame(chain)
             formatted_chain = df.to_string(index=False, header=True)
             
             with open(name, 'w') as f:
                 f.write(formatted_chain)
+            """
+
+    def create_paramnames_file(self, name_root, param_names=None, readFromFile=False, index=''):
+        """ Create parameter names files for the chain, based on the provided parameters. If readFromFile is True, the parameter names will be read from the chain file header instead of the provided parameters list."""
+
+        if index != '':
+            chain_file = f'{name_root}.{index}.txt'
+            paramnames_file = f'{name_root}.paramnames'
+        else:
+            chain_file = f'{name_root}.txt'
+            paramnames_file = f'{name_root}.paramnames'
+
+        if readFromFile:
+            with open(chain_file, 'r') as f:
+                header = f.readline().strip()
+
+            #array of parameter names, stip the leading '# ' and remove the first two columns
+
+            full_list = header.lstrip('# ').split()[2:]
+
+        else:
+            default_header_additions = ['minuslogprior', 'minuslogprior__0', 'chi2', 'chis2__modelclass'] #inspired by Cobaya default heading labels
+           
+            
+            if param_names is None:
+                print("Please provide a list of parameter names to create the paramnames file, or set readFromFile to True to read the parameter names from the chain file header.")
+            else:
+                full_list = param_names + default_header_additions
+
+        with open(paramnames_file, 'w') as f:
+            for name in full_list:
+                f.write(f'{name}\n')
+
 
     def corner_plot(self, params_to_plot):
         """ Create a corner plot for the given parameters.
@@ -964,13 +1067,17 @@ class SaccWorkspace:
         return beam_cut
     
 
+
+
+    
+
 class MaleubreModel():
     """ Likelihood model for angular power spectra, as described in the paper by Maleubre et al. (TBC).
     
     Expects the galaxy density tracers to be defined as the leadind tracer in each combination in the sacc file, and the U tracer to be defined as the second tracer in each combination. If this is not the case, one can 
     flag the reverse_order parameter to True when initializing the SaccWorkspace object, which will reverse the order of the tracers in the tracer combinations. Then pass tracer combinations in in the order of the SACC file, i.e. (U, G) instead of (G, U)."""
 
-    def __init__(self, tracer_combos, cosmology, Tracer1Workspace, Tracer2Workspace=None, sacc_workspace=None, logged_N=False, min_ell=100, max_ell=1000, k_max=None, beam_window=None):
+    def __init__(self, tracer_combos, cosmology, Tracer1Workspace, Tracer2Workspace=None, sacc_workspace=None, logged_N=False, min_ell=100, max_ell=1000, k_max=None, beam_window=None, pixel_window=None, nside=1024):
         """ Initializes the MaleubreModel with the given parameters.
         
         Parameters:
@@ -998,6 +1105,7 @@ class MaleubreModel():
         self.data = sacc_workspace.data if sacc_workspace is not None else None
 
         self.beam_window = beam_window
+        self.pixel_window = pixel_window
 
         self.pre_calculated = False
 
@@ -1005,6 +1113,8 @@ class MaleubreModel():
         self.max_ell = max_ell
 
         self.icovariance = None
+
+        self.nside = nside
 
         self.P_mms = {}
         self.P_mm_ksquares = {}
@@ -1137,6 +1247,9 @@ class MaleubreModel():
 
         self.pre_calculated = True
 
+        if self.pixel_window:
+            self.pixel_window_dict = {}
+
 
 
         # Pre-calculates a dictionary of the linear power spectrum used in the model, for each tracer combination.
@@ -1174,6 +1287,14 @@ class MaleubreModel():
                         self.tracers[self.tracer_combos[i][1]], 
                         ell=cut_ells, 
                         p_of_k_a=self.pksquare_mm)
+                    
+                if self.pixel_window:
+                    pix_win = hp.sphtfunc.pixwin(self.nside, lmax=self.max_ell)
+
+                    print(np.round(cut_ells).astype(int))
+
+                    self.pixel_window_dict[f'{self.tracer_combos[i][0]}, {self.tracer_combos[i][1]}'] = pix_win[np.round(cut_ells).astype(int)]
+
                 
             else:
                 self.workspace1 = self.workspace_dict[self.tracer_combos[i][0][:-1]] if self.tracer_combos[i][0] in self.workspace_dict else self.Tracer1Workspace
@@ -1204,6 +1325,10 @@ class MaleubreModel():
                         self.tracers[self.tracer_combos[i][1]], 
                         ell=cut_ells, 
                         p_of_k_a=self.pksquare_mm)
+                    
+                if self.pixel_window:
+                    pix_win = hp.sphtfunc.pixwin(self.nside, lmax=self.max_ell)
+                    self.pixel_window_dict[f'{self.tracer_combos[i][0]}, {self.tracer_combos[i][1]}'] = pix_win[np.round(cut_ells).astype(int)]
             
         covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', self.masks)
 
@@ -1389,12 +1514,17 @@ class MaleubreModel():
                         
                     all_cut_c_ells.append(cut_c_ells)
                     masks.append(mask)
+            
+                if self.pixel_window:
+                    pix_win = self.pixel_window_dict[f'{self.tracer_combos[i][0]}, {self.tracer_combos[i][1]}']
+                else:
+                    pix_win = 1.0
                 
                 Pm = self.P_mms[f'{self.tracer_combos[i][0]}, {self.tracer_combos[i][1]}']
                 Pmk2 = self.P_mm_ksquares[f'{self.tracer_combos[i][0]}, {self.tracer_combos[i][1]}']
 
                 theory_c_ells.append(
-                    b_gs[i%len(b_gs)]**2 * Pm + N_ggs[i%len(N_ggs)] + Pmk2 * A_ggs[i%len(A_ggs)]
+                    (b_gs[i%len(b_gs)]**2 * Pm + N_ggs[i%len(N_ggs)] + Pmk2 * A_ggs[i%len(A_ggs)]) * pix_win**2
                 ) 
                 
 
@@ -1440,10 +1570,15 @@ class MaleubreModel():
                 else:
                     beam = 1.0
 
+                if self.pixel_window:
+                    pix_win = self.pixel_window_dict[f'{self.tracer_combos[i][0]}, {self.tracer_combos[i][1]}']
+                else:
+                    pix_win = 1.0
+
                 theory_c_ells.append(
                 (b_gs[i%len(b_gs)] * bpsfrs[i%len(bpsfrs)] * Pm
                     + N_gnus[i%len(N_gnus)]
-                    + Pmk2 * A_gnus[i%len(A_gnus)]) * beam
+                    + Pmk2 * A_gnus[i%len(A_gnus)]) * beam**2 * pix_win**2
                 ) 
 
                 
@@ -1471,7 +1606,7 @@ class MaleubreModel():
         return logL
     
 
-    def get_modelled_data(self, b_gs, N_ggs, A_ggs, N_gnus=None, A_gnus=None, bpsfrs=None, full_ells=False):
+    def get_modelled_data(self, b_gs, N_ggs, A_ggs, N_gnus=None, A_gnus=None, bpsfrs=None, full_ells=False, lightweight=False):
 
         """ Get the modelled data for the given parameters. Can be used for only auto-correlations, cross-correlations, or both auto and cross-correlations.
         
@@ -1541,14 +1676,33 @@ class MaleubreModel():
                 if full_ells == False:
                     ells = cut_ells
 
-                theory_c_ells.append(
-                b_gs[i%len(b_gs)]**2 * ccl.angular_cl(
-                    self.cosmology,
-                    tracers[tracer_combo[0]],
-                    tracers[tracer_combo[1]],
-                    ell=ells,
-                    p_of_k_a=self.pk2d_mm) + N_ggs[i%len(N_ggs)]*self.kernel_squared_integral(tracer_combo[0], self.workspace) + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[0]], ell=ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%len(A_ggs)]
-                )
+                if self.pixel_window:
+                    print("OIOI", len(ells), int(max(ells)))
+                    pix_win = pix_win = hp.sphtfunc.pixwin(self.nside)[np.round(ells).astype(int)]
+                   
+                else:
+                    pix_win = 1.0
+
+                if lightweight:
+                    theory_c_ells.append(
+                    (b_gs[i%len(b_gs)]**2 * ccl.angular_cl(
+                        self.cosmology,
+                        tracers[tracer_combo[0]],
+                        tracers[tracer_combo[1]],
+                        ell=ells,
+                        p_of_k_a=self.pk2d_mm) + N_ggs[i%len(N_ggs)] + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[0]], ell=ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%len(A_ggs)]) *pix_win**2
+                    )
+                
+                else:
+
+                    theory_c_ells.append(
+                    (b_gs[i%len(b_gs)]**2 * ccl.angular_cl(
+                        self.cosmology,
+                        tracers[tracer_combo[0]],
+                        tracers[tracer_combo[1]],
+                        ell=ells,
+                        p_of_k_a=self.pk2d_mm) + N_ggs[i%len(N_ggs)]*self.kernel_squared_integral(tracer_combo[0], self.workspace) + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[0]], ell=ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%len(A_ggs)]) *pix_win**2
+                    )
 
                 cut_ells_arr.append(cut_ells)
                 masks.append(mask)
@@ -1574,16 +1728,36 @@ class MaleubreModel():
                 else:
                     beam = 1.0
 
-                theory_c_ells.append(
-                (b_gs[i%len(b_gs)] * bpsfrs[i%len(bpsfrs)] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
-                    self.cosmology,
-                    tracers[tracer_combo[0]],
-                    tracers[tracer_combo[1]],
-                    ell=ells,
-                    p_of_k_a=self.pk2d_mm) 
-                    + N_gnus[i%len(N_gnus)]*self.kernel_mixed_integral(f'{tracer_combo[0]}', f'{tracer_combo[1]}', self.workspace1, self.workspace2) 
-                    + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[1]], ell=ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%len(A_gnus)]) * beam
-                ) 
+                if self.pixel_window:
+                    pix_win = hp.sphtfunc.pixwin(self.nside)[np.round(ells).astype(int)]
+            
+                else:
+                    pix_win = 1.0
+
+                if lightweight:
+                    theory_c_ells.append(
+                    (b_gs[i%len(b_gs)] * bpsfrs[i%len(bpsfrs)] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
+                        self.cosmology,
+                        tracers[tracer_combo[0]],
+                        tracers[tracer_combo[1]],
+                        ell=ells,
+                        p_of_k_a=self.pk2d_mm) 
+                        + N_gnus[i%len(N_gnus)]
+                        + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[1]], ell=ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%len(A_gnus)]) * beam**2 *pix_win**2
+                    ) 
+                    
+                else:
+    
+                    theory_c_ells.append(
+                    (b_gs[i%len(b_gs)] * bpsfrs[i%len(bpsfrs)] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
+                        self.cosmology,
+                        tracers[tracer_combo[0]],
+                        tracers[tracer_combo[1]],
+                        ell=ells,
+                        p_of_k_a=self.pk2d_mm) 
+                        + N_gnus[i%len(N_gnus)]*self.kernel_mixed_integral(f'{tracer_combo[0]}', f'{tracer_combo[1]}', self.workspace1, self.workspace2) 
+                        + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[1]], ell=ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%len(A_gnus)]) * beam**2 *pix_win**2
+                    ) 
 
                 cut_ells_arr.append(cut_ells)
                 masks.append(mask)
@@ -1615,7 +1789,7 @@ class MaleubreModel():
 
 def version():
     """ Return the version of the module."""
-    return "0.0.1 - Stable Release"
+    return "0.0.3 - Stable Release"
 
 
 

@@ -29,6 +29,7 @@ class Plots:
             row = i % 4
             col = i // 4
             
+            
             inner_grid = outer_grid[row, col].subgridspec(2, 1, height_ratios=[4, 1], hspace=0)
             
 

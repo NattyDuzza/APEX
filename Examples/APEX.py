@@ -8,6 +8,7 @@ from mpi4py import MPI
 from cobaya.log import LoggedError
 import pandas as pd
 from astropy.io import fits
+import healpy as hp
 
 #extension imports
 from Plots import Plots
@@ -964,13 +965,17 @@ class SaccWorkspace:
         return beam_cut
     
 
+
+
+    
+
 class MaleubreModel():
     """ Likelihood model for angular power spectra, as described in the paper by Maleubre et al. (TBC).
     
     Expects the galaxy density tracers to be defined as the leadind tracer in each combination in the sacc file, and the U tracer to be defined as the second tracer in each combination. If this is not the case, one can 
     flag the reverse_order parameter to True when initializing the SaccWorkspace object, which will reverse the order of the tracers in the tracer combinations. Then pass tracer combinations in in the order of the SACC file, i.e. (U, G) instead of (G, U)."""
 
-    def __init__(self, tracer_combos, cosmology, Tracer1Workspace, Tracer2Workspace=None, sacc_workspace=None, logged_N=False, min_ell=100, max_ell=1000, k_max=None, beam_window=None):
+    def __init__(self, tracer_combos, cosmology, Tracer1Workspace, Tracer2Workspace=None, sacc_workspace=None, logged_N=False, min_ell=100, max_ell=1000, k_max=None, beam_window=None, pixel_window=None, nside=1024):
         """ Initializes the MaleubreModel with the given parameters.
         
         Parameters:
@@ -998,6 +1003,7 @@ class MaleubreModel():
         self.data = sacc_workspace.data if sacc_workspace is not None else None
 
         self.beam_window = beam_window
+        self.pixel_window = pixel_window
 
         self.pre_calculated = False
 
@@ -1005,6 +1011,8 @@ class MaleubreModel():
         self.max_ell = max_ell
 
         self.icovariance = None
+
+        self.nside = nside
 
         self.P_mms = {}
         self.P_mm_ksquares = {}
@@ -1137,6 +1145,9 @@ class MaleubreModel():
 
         self.pre_calculated = True
 
+        if self.pixel_window:
+            self.pixel_window_dict = {}
+
 
 
         # Pre-calculates a dictionary of the linear power spectrum used in the model, for each tracer combination.
@@ -1174,6 +1185,14 @@ class MaleubreModel():
                         self.tracers[self.tracer_combos[i][1]], 
                         ell=cut_ells, 
                         p_of_k_a=self.pksquare_mm)
+                    
+                if self.pixel_window:
+                    pix_win = hp.sphtfunc.pixwin(self.nside, lmax=self.max_ell)
+
+                    print(np.round(cut_ells).astype(int))
+
+                    self.pixel_window_dict[f'{self.tracer_combos[i][0]}, {self.tracer_combos[i][1]}'] = pix_win[np.round(cut_ells).astype(int)]
+
                 
             else:
                 self.workspace1 = self.workspace_dict[self.tracer_combos[i][0][:-1]] if self.tracer_combos[i][0] in self.workspace_dict else self.Tracer1Workspace
@@ -1204,6 +1223,10 @@ class MaleubreModel():
                         self.tracers[self.tracer_combos[i][1]], 
                         ell=cut_ells, 
                         p_of_k_a=self.pksquare_mm)
+                    
+                if self.pixel_window:
+                    pix_win = hp.sphtfunc.pixwin(self.nside, lmax=self.max_ell)
+                    self.pixel_window_dict[f'{self.tracer_combos[i][0]}, {self.tracer_combos[i][1]}'] = pix_win[np.round(cut_ells).astype(int)]
             
         covariance = self.sacc_workspace.cut_covariance_matrix('cl_00', self.masks)
 
@@ -1389,12 +1412,17 @@ class MaleubreModel():
                         
                     all_cut_c_ells.append(cut_c_ells)
                     masks.append(mask)
+            
+                if self.pixel_window:
+                    pix_win = self.pixel_window_dict[f'{self.tracer_combos[i][0]}, {self.tracer_combos[i][1]}']
+                else:
+                    pix_win = 1.0
                 
                 Pm = self.P_mms[f'{self.tracer_combos[i][0]}, {self.tracer_combos[i][1]}']
                 Pmk2 = self.P_mm_ksquares[f'{self.tracer_combos[i][0]}, {self.tracer_combos[i][1]}']
 
                 theory_c_ells.append(
-                    b_gs[i%len(b_gs)]**2 * Pm + N_ggs[i%len(N_ggs)] + Pmk2 * A_ggs[i%len(A_ggs)]
+                    (b_gs[i%len(b_gs)]**2 * Pm + N_ggs[i%len(N_ggs)] + Pmk2 * A_ggs[i%len(A_ggs)]) * pix_win**2
                 ) 
                 
 
@@ -1440,10 +1468,15 @@ class MaleubreModel():
                 else:
                     beam = 1.0
 
+                if self.pixel_window:
+                    pix_win = self.pixel_window_dict[f'{self.tracer_combos[i][0]}, {self.tracer_combos[i][1]}']
+                else:
+                    pix_win = 1.0
+
                 theory_c_ells.append(
                 (b_gs[i%len(b_gs)] * bpsfrs[i%len(bpsfrs)] * Pm
                     + N_gnus[i%len(N_gnus)]
-                    + Pmk2 * A_gnus[i%len(A_gnus)]) * beam
+                    + Pmk2 * A_gnus[i%len(A_gnus)]) * beam**2 * pix_win**2
                 ) 
 
                 
@@ -1471,7 +1504,7 @@ class MaleubreModel():
         return logL
     
 
-    def get_modelled_data(self, b_gs, N_ggs, A_ggs, N_gnus=None, A_gnus=None, bpsfrs=None, full_ells=False):
+    def get_modelled_data(self, b_gs, N_ggs, A_ggs, N_gnus=None, A_gnus=None, bpsfrs=None, full_ells=False, lightweight=False):
 
         """ Get the modelled data for the given parameters. Can be used for only auto-correlations, cross-correlations, or both auto and cross-correlations.
         
@@ -1541,14 +1574,33 @@ class MaleubreModel():
                 if full_ells == False:
                     ells = cut_ells
 
-                theory_c_ells.append(
-                b_gs[i%len(b_gs)]**2 * ccl.angular_cl(
-                    self.cosmology,
-                    tracers[tracer_combo[0]],
-                    tracers[tracer_combo[1]],
-                    ell=ells,
-                    p_of_k_a=self.pk2d_mm) + N_ggs[i%len(N_ggs)]*self.kernel_squared_integral(tracer_combo[0], self.workspace) + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[0]], ell=ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%len(A_ggs)]
-                )
+                if self.pixel_window:
+                    print("OIOI", len(ells), int(max(ells)))
+                    pix_win = pix_win = hp.sphtfunc.pixwin(self.nside)[np.round(ells).astype(int)]
+                   
+                else:
+                    pix_win = 1.0
+
+                if lightweight:
+                    theory_c_ells.append(
+                    (b_gs[i%len(b_gs)]**2 * ccl.angular_cl(
+                        self.cosmology,
+                        tracers[tracer_combo[0]],
+                        tracers[tracer_combo[1]],
+                        ell=ells,
+                        p_of_k_a=self.pk2d_mm) + N_ggs[i%len(N_ggs)] + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[0]], ell=ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%len(A_ggs)]) *pix_win**2
+                    )
+                
+                else:
+
+                    theory_c_ells.append(
+                    (b_gs[i%len(b_gs)]**2 * ccl.angular_cl(
+                        self.cosmology,
+                        tracers[tracer_combo[0]],
+                        tracers[tracer_combo[1]],
+                        ell=ells,
+                        p_of_k_a=self.pk2d_mm) + N_ggs[i%len(N_ggs)]*self.kernel_squared_integral(tracer_combo[0], self.workspace) + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[0]], ell=ells, p_of_k_a=self.pksquare_mm) * A_ggs[i%len(A_ggs)]) *pix_win**2
+                    )
 
                 cut_ells_arr.append(cut_ells)
                 masks.append(mask)
@@ -1574,16 +1626,36 @@ class MaleubreModel():
                 else:
                     beam = 1.0
 
-                theory_c_ells.append(
-                (b_gs[i%len(b_gs)] * bpsfrs[i%len(bpsfrs)] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
-                    self.cosmology,
-                    tracers[tracer_combo[0]],
-                    tracers[tracer_combo[1]],
-                    ell=ells,
-                    p_of_k_a=self.pk2d_mm) 
-                    + N_gnus[i%len(N_gnus)]*self.kernel_mixed_integral(f'{tracer_combo[0]}', f'{tracer_combo[1]}', self.workspace1, self.workspace2) 
-                    + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[1]], ell=ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%len(A_gnus)]) * beam
-                ) 
+                if self.pixel_window:
+                    pix_win = hp.sphtfunc.pixwin(self.nside)[np.round(ells).astype(int)]
+            
+                else:
+                    pix_win = 1.0
+
+                if lightweight:
+                    theory_c_ells.append(
+                    (b_gs[i%len(b_gs)] * bpsfrs[i%len(bpsfrs)] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
+                        self.cosmology,
+                        tracers[tracer_combo[0]],
+                        tracers[tracer_combo[1]],
+                        ell=ells,
+                        p_of_k_a=self.pk2d_mm) 
+                        + N_gnus[i%len(N_gnus)]
+                        + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[1]], ell=ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%len(A_gnus)]) * beam**2 *pix_win**2
+                    ) 
+                    
+                else:
+    
+                    theory_c_ells.append(
+                    (b_gs[i%len(b_gs)] * bpsfrs[i%len(bpsfrs)] * ccl.angular_cl( # $b_{g} b_{sfr} C_ell$
+                        self.cosmology,
+                        tracers[tracer_combo[0]],
+                        tracers[tracer_combo[1]],
+                        ell=ells,
+                        p_of_k_a=self.pk2d_mm) 
+                        + N_gnus[i%len(N_gnus)]*self.kernel_mixed_integral(f'{tracer_combo[0]}', f'{tracer_combo[1]}', self.workspace1, self.workspace2) 
+                        + ccl.angular_cl(self.cosmology, tracers[tracer_combo[0]], tracers[tracer_combo[1]], ell=ells, p_of_k_a=self.pksquare_mm) * A_gnus[i%len(A_gnus)]) * beam**2 *pix_win**2
+                    ) 
 
                 cut_ells_arr.append(cut_ells)
                 masks.append(mask)
@@ -1615,7 +1687,7 @@ class MaleubreModel():
 
 def version():
     """ Return the version of the module."""
-    return "0.0.1 - Stable Release"
+    return "0.0.2 - Stable Release"
 
 
 
